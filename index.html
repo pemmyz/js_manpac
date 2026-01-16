@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Pac-Man: 2-Player Arcade Edition</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <!-- Import Three.js via ES Modules -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="game-container">
+        <!-- HUD -->
+        <div id="ui-layer">
+            <div class="score-board">
+                <div id="p1-score-box">
+                    <div class="label">1UP</div>
+                    <div id="score-p1">00</div>
+                    <div id="lives-p1" class="lives"></div>
+                </div>
+                <div id="high-score-box">
+                    <div class="label">HIGH SCORE</div>
+                    <div id="high-score">00</div>
+                </div>
+                <div id="p2-score-box">
+                    <div class="label">2UP</div>
+                    <div id="score-p2">00</div>
+                    <div id="lives-p2" class="lives"></div>
+                </div>
+            </div>
+            
+            <div id="center-message">
+                <h1 id="main-title">PAC-MAN 3D</h1>
+                <p id="sub-message">PRESS SPACE TO START</p>
+                <div class="controls-hint">
+                    <p>P1: ARROWS</p>
+                    <p>P2: WASD</p>
+                </div>
+                <div id="mode-select">
+                    <button id="btn-1p" class="selected">1 PLAYER</button>
+                    <button id="btn-2p">2 PLAYERS</button>
+                </div>
+            </div>
+        </div>
+        
+        <canvas id="game-canvas"></canvas>
+    </div>
+    <script type="module" src="script.js"></script>
+</body>
+</html>
