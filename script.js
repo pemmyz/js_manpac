@@ -3,7 +3,10 @@ import * as THREE from 'three';
 /**
  * CONFIGURATION & CONSTANTS
  */
-const TILE_SIZE = 10;
+const TILE_SIZE = 10;       // Grid spacing (Distance between dot centers)
+const WALL_HEIGHT = 1;     // Visual height of the walls (Y-axis)
+const WALL_THICKNESS = 10;  // Visual width/thickness of the walls
+
 const MAZE_W = 28;
 const MAZE_H = 31;
 const SPEED_NORMAL = 50; 
@@ -202,13 +205,23 @@ class Game {
         this.walls = [];
         this.pellets = [];
         this.grid = [];
-
-        // Geometries
-        // SOLID CUBES: Width, Height, Depth = TILE_SIZE * 0.9
-        const boxSize = TILE_SIZE * 0.9;
-        const wallGeo = new THREE.BoxGeometry(boxSize, boxSize, boxSize);
-        const wallMat = new THREE.MeshLambertMaterial({ color: 0x2121de, emissive: 0x111199 });
         
+        // Materials: Solid Blue with slight arcade glow
+        const wallMat = new THREE.MeshLambertMaterial({ 
+            color: 0x2121de, 
+            emissive: 0x080890 
+        });
+
+        // Geometries for "Wrap Around" effect using GLOBAL CONSTANTS
+        // 1. Joint: Cylinder at the center of every wall tile
+        const jointGeo = new THREE.CylinderGeometry(WALL_THICKNESS/2, WALL_THICKNESS/2, WALL_HEIGHT, 16);
+        
+        // 2. Connectors: Rectangles connecting neighbors
+        // Horizontal Connector (Width = TILE_SIZE to span gap)
+        const hConnGeo = new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, WALL_THICKNESS); 
+        // Vertical Connector (Depth = TILE_SIZE to span gap)
+        const vConnGeo = new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, TILE_SIZE); 
+
         const pelletGeo = new THREE.SphereGeometry(1.5, 6, 6);
         const powerGeo = new THREE.SphereGeometry(3.5, 8, 8);
         const pelletMat = new THREE.MeshLambertMaterial({ color: 0xffb8ae });
@@ -227,11 +240,29 @@ class Game {
                 const z = row * TILE_SIZE - offsetZ + (TILE_SIZE/2);
 
                 if (val === 1) {
-                    // WALL
-                    const wall = new THREE.Mesh(wallGeo, wallMat);
-                    wall.position.set(x, 0, z); // Center vertically
-                    this.scene.add(wall);
-                    this.walls.push(wall);
+                    // WALL GENERATION
+                    
+                    // 1. Place the Joint (Corner/Pillar)
+                    const joint = new THREE.Mesh(jointGeo, wallMat);
+                    joint.position.set(x, 0, z);
+                    this.scene.add(joint);
+                    this.walls.push(joint);
+
+                    // 2. Check Right Neighbor (Connect East)
+                    if (col < MAP_LAYOUT[row].length - 1 && parseInt(MAP_LAYOUT[row][col + 1]) === 1) {
+                        const conn = new THREE.Mesh(hConnGeo, wallMat);
+                        conn.position.set(x + TILE_SIZE/2, 0, z); // Place halfway between
+                        this.scene.add(conn);
+                        this.walls.push(conn);
+                    }
+
+                    // 3. Check Bottom Neighbor (Connect South)
+                    if (row < MAP_LAYOUT.length - 1 && parseInt(MAP_LAYOUT[row + 1][col]) === 1) {
+                        const conn = new THREE.Mesh(vConnGeo, wallMat);
+                        conn.position.set(x, 0, z + TILE_SIZE/2); // Place halfway between
+                        this.scene.add(conn);
+                        this.walls.push(conn);
+                    }
                 } 
                 else if (val === 2) {
                     // PELLET
