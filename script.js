@@ -550,68 +550,100 @@ class Actor {
 
     // Returns TRUE if we hit/crossed the center of a tile this frame
     drive(dt) {
-        // 1. Calculate ideal center of current tile
+        // Capture safe previous tile for emergency fallback
+        const oldCol = this.tilePos.col;
+        const oldRow = this.tilePos.row;
+        
         const center = this.game.getPixelForTile(this.tilePos.col, this.tilePos.row);
         
-        // FIX: Strict Axis Alignment. 
-        // If moving Horizontal, force Z to be exact center. If Vertical, force X to be exact center.
-        // This prevents "corner cutting" or drifting into walls.
+        // Axis Alignment: Prevent drift
         if (this.dir.x !== 0) this.pixelPos.z = center.z;
         if (this.dir.z !== 0) this.pixelPos.x = center.x;
 
-        // 2. Are we currently at center?
+        // PRE-CHECK: Is the tile we are moving towards a wall?
+        let blockedAhead = false;
+        if (this.dir !== NONE) {
+            const nextC = this.tilePos.col + this.dir.x;
+            const nextR = this.tilePos.row + this.dir.z;
+            // !!this.type is true for Ghosts (have type), false for Player
+            if (!this.game.isWalkable(nextC, nextR, !!this.type)) {
+                blockedAhead = true;
+            }
+        }
+
         const distToCenter = Math.sqrt(
             Math.pow(this.pixelPos.x - center.x, 2) + 
             Math.pow(this.pixelPos.z - center.z, 2)
         );
 
-        // 3. Movement Amount
         let moveAmt = this.speed * dt;
         let reachedCenter = false;
 
         if (this.dir === NONE) {
-            // Not moving, just snap to center to be safe
             this.pixelPos.x = center.x;
             this.pixelPos.z = center.z;
         } else {
-            // 4. Moving. Are we moving TOWARDS the center or AWAY?
-            // Dot product of (Center - Current) and Dir
+            // Determine relative position to center
             const toCenterX = center.x - this.pixelPos.x;
             const toCenterZ = center.z - this.pixelPos.z;
             const dot = toCenterX * this.dir.x + toCenterZ * this.dir.z;
 
             if (dot > 0) {
-                // Moving TOWARDS center
+                // Case A: Moving TOWARDS center
                 if (moveAmt >= distToCenter) {
-                    // We reach center this frame
+                    // We hit the center
                     this.pixelPos.x = center.x;
                     this.pixelPos.z = center.z;
-                    moveAmt -= distToCenter; // Remaining movement
+                    moveAmt -= distToCenter; // Calc remaining movement
                     reachedCenter = true;
+
+                    // If blocked ahead, stop exactly here. Do not use remaining movement.
+                    if (blockedAhead) {
+                        moveAmt = 0;
+                    }
                 } else {
-                    // Just move closer
+                    // Just approach center
                     this.pixelPos.x += this.dir.x * moveAmt;
                     this.pixelPos.z += this.dir.z * moveAmt;
                     moveAmt = 0;
                 }
             } else {
-                // Moving AWAY from center (already passed it), just add pos
-                this.pixelPos.x += this.dir.x * moveAmt;
-                this.pixelPos.z += this.dir.z * moveAmt;
-                moveAmt = 0;
+                // Case B: Moving AWAY from center (or already past it)
+                if (blockedAhead) {
+                    // We are not allowed to enter the wall space. Snap/Stay at center.
+                    this.pixelPos.x = center.x;
+                    this.pixelPos.z = center.z;
+                    moveAmt = 0;
+                } else {
+                    // Path is clear, proceed
+                    this.pixelPos.x += this.dir.x * moveAmt;
+                    this.pixelPos.z += this.dir.z * moveAmt;
+                    moveAmt = 0;
+                }
             }
         }
 
-        // Tunnel Wrap Check
+        // Tunnel Wrap
         const limit = (MAZE_W * TILE_SIZE) / 2 + TILE_SIZE;
         if (this.pixelPos.x > limit) { this.pixelPos.x = -limit + 5; this.tilePos.col = 0; }
         else if (this.pixelPos.x < -limit) { this.pixelPos.x = limit - 5; this.tilePos.col = MAZE_W - 1; }
 
-        // Update Grid Coordinates based on new Pixel Pos
+        // Update Grid Coordinates
         const offsetX = (MAZE_W * TILE_SIZE) / 2;
         const offsetZ = (MAZE_H * TILE_SIZE) / 2;
         this.tilePos.col = Math.floor((this.pixelPos.x + offsetX) / TILE_SIZE);
         this.tilePos.row = Math.floor((this.pixelPos.z + offsetZ) / TILE_SIZE);
+
+        // FALLBACK SAFETY: If we somehow ended up inside a wall (e.g. tunnel edge case), snap back
+        if (!this.game.isWalkable(this.tilePos.col, this.tilePos.row, !!this.type)) {
+            this.tilePos.col = oldCol;
+            this.tilePos.row = oldRow;
+            const safeCenter = this.game.getPixelForTile(oldCol, oldRow);
+            this.pixelPos.x = safeCenter.x;
+            this.pixelPos.z = safeCenter.z;
+            reachedCenter = true;
+            moveAmt = 0;
+        }
 
         this.mesh.position.set(this.pixelPos.x, 0, this.pixelPos.z);
         
