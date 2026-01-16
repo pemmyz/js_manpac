@@ -4,8 +4,9 @@ import * as THREE from 'three';
  * CONFIGURATION & CONSTANTS
  */
 const TILE_SIZE = 10;       // Grid spacing (Distance between dot centers)
-const WALL_HEIGHT = 1;     // Visual height of the walls (Y-axis)
-const WALL_THICKNESS = 10;  // Visual width/thickness of the walls
+const WALL_HEIGHT = 2.5;    // Visual height of the walls (Y-axis)
+const WALL_THICKNESS = 4;   // THICKNESS (Z for Horiz, X for Vert). 
+                            // Set smaller than TILE_SIZE for clean "bone" connections.
 
 const MAZE_W = 28;
 const MAZE_H = 31;
@@ -212,14 +213,14 @@ class Game {
             emissive: 0x080890 
         });
 
-        // Geometries for "Wrap Around" effect using GLOBAL CONSTANTS
+        // Geometries
         // 1. Joint: Cylinder at the center of every wall tile
         const jointGeo = new THREE.CylinderGeometry(WALL_THICKNESS/2, WALL_THICKNESS/2, WALL_HEIGHT, 16);
         
-        // 2. Connectors: Rectangles connecting neighbors
-        // Horizontal Connector (Width = TILE_SIZE to span gap)
+        // 2. Connectors: 
+        // Horizontal: Long X (TILE_SIZE), Thin Z (WALL_THICKNESS)
         const hConnGeo = new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, WALL_THICKNESS); 
-        // Vertical Connector (Depth = TILE_SIZE to span gap)
+        // Vertical: Thin X (WALL_THICKNESS), Long Z (TILE_SIZE)
         const vConnGeo = new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, TILE_SIZE); 
 
         const pelletGeo = new THREE.SphereGeometry(1.5, 6, 6);
@@ -248,7 +249,7 @@ class Game {
                     this.scene.add(joint);
                     this.walls.push(joint);
 
-                    // 2. Check Right Neighbor (Connect East)
+                    // 2. Check Right Neighbor (Connect East) - Horizontal
                     if (col < MAP_LAYOUT[row].length - 1 && parseInt(MAP_LAYOUT[row][col + 1]) === 1) {
                         const conn = new THREE.Mesh(hConnGeo, wallMat);
                         conn.position.set(x + TILE_SIZE/2, 0, z); // Place halfway between
@@ -256,7 +257,7 @@ class Game {
                         this.walls.push(conn);
                     }
 
-                    // 3. Check Bottom Neighbor (Connect South)
+                    // 3. Check Bottom Neighbor (Connect South) - Vertical
                     if (row < MAP_LAYOUT.length - 1 && parseInt(MAP_LAYOUT[row + 1][col]) === 1) {
                         const conn = new THREE.Mesh(vConnGeo, wallMat);
                         conn.position.set(x, 0, z + TILE_SIZE/2); // Place halfway between
@@ -552,6 +553,12 @@ class Actor {
         // 1. Calculate ideal center of current tile
         const center = this.game.getPixelForTile(this.tilePos.col, this.tilePos.row);
         
+        // FIX: Strict Axis Alignment. 
+        // If moving Horizontal, force Z to be exact center. If Vertical, force X to be exact center.
+        // This prevents "corner cutting" or drifting into walls.
+        if (this.dir.x !== 0) this.pixelPos.z = center.z;
+        if (this.dir.z !== 0) this.pixelPos.x = center.x;
+
         // 2. Are we currently at center?
         const distToCenter = Math.sqrt(
             Math.pow(this.pixelPos.x - center.x, 2) + 
@@ -693,8 +700,8 @@ class PacMan extends Actor {
         // Movement Step
         const result = this.drive(dt);
 
+        // LOGIC AT INTERSECTION (CENTER OF TILE)
         if (result.reachedCenter || this.dir === NONE) {
-            // We are at a decision point.
             
             // 1. Can we turn to nextDir?
             if (this.nextDir !== NONE) {
@@ -714,11 +721,18 @@ class PacMan extends Actor {
             // 2. Can we continue current dir?
             const nextC = this.tilePos.col + this.dir.x;
             const nextR = this.tilePos.row + this.dir.z;
+            
             if (!this.game.isWalkable(nextC, nextR)) {
-                // Hit wall
+                // HIT WALL: Stop EXACTLY at center
                 this.dir = NONE;
+                
+                // FIX: Hard Snap to center to prevent visual bleeding into wall
+                const center = this.game.getPixelForTile(this.tilePos.col, this.tilePos.row);
+                this.pixelPos.x = center.x;
+                this.pixelPos.z = center.z;
+                this.mesh.position.set(this.pixelPos.x, 0, this.pixelPos.z);
             } else {
-                // If we have remaining DT from the snap, apply it now in the (potentially new) direction
+                // Path is clear, if we have remaining time, move into the next tile
                 if (result.remainingDt > 0 && this.dir !== NONE) {
                     this.pixelPos.x += this.dir.x * this.speed * result.remainingDt;
                     this.pixelPos.z += this.dir.z * this.speed * result.remainingDt;
