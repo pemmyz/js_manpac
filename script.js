@@ -11,15 +11,7 @@ const SPEED_FRIGHT = 35;
 const SPEED_GHOST_NORMAL = 45;
 const SPEED_GHOST_FRIGHT = 25;
 
-// KEY:
-// 0 = Tunnel / Empty (Walkable)
-// 1 = Wall (Block)
-// 2 = Pellet (Walkable)
-// 3 = Power Pellet (Walkable)
-// 4 = Ghost House (No Entry for Pacman)
-// 5 = Ghost House Door (Visual, blocks Pacman usually)
-// 9 = Empty Path (No pellet)
-
+// KEY: 1 = Wall, 0/9 = Walkable, 2/3 = Pellets, 5 = Door
 const MAP_LAYOUT = [
     "1111111111111111111111111111",
     "1222222222222112222222222221",
@@ -33,8 +25,8 @@ const MAP_LAYOUT = [
     "1111112111119119111112111111",
     "0000012111119119111112100000",
     "0000012119999999999112100000",
-    "1111112119111551119112111111", // Row 12
-    "9999992999144444419992999999", // Row 13 (Tunnel Row)
+    "1111112119111551119112111111",
+    "9999992999144444419992999999", // Tunnel Row
     "1111112119111111119112111111",
     "0000012119999999999112100000",
     "0000012119111111119112100000",
@@ -212,12 +204,11 @@ class Game {
         this.grid = [];
 
         // Geometries
-        // CHANGE: Width/Depth = ~9, Height = 2. This makes them thin, flat plates.
+        // SOLID CUBES: Width, Height, Depth = TILE_SIZE * 0.9
         const boxSize = TILE_SIZE * 0.9;
-        const wallHeight = 2; 
-        const wallGeo = new THREE.BoxGeometry(boxSize, wallHeight, boxSize);
-        
+        const wallGeo = new THREE.BoxGeometry(boxSize, boxSize, boxSize);
         const wallMat = new THREE.MeshLambertMaterial({ color: 0x2121de, emissive: 0x111199 });
+        
         const pelletGeo = new THREE.SphereGeometry(1.5, 6, 6);
         const powerGeo = new THREE.SphereGeometry(3.5, 8, 8);
         const pelletMat = new THREE.MeshLambertMaterial({ color: 0xffb8ae });
@@ -238,7 +229,7 @@ class Game {
                 if (val === 1) {
                     // WALL
                     const wall = new THREE.Mesh(wallGeo, wallMat);
-                    wall.position.set(x, -2, z); // Lower slightly so they are near floor
+                    wall.position.set(x, 0, z); // Center vertically
                     this.scene.add(wall);
                     this.walls.push(wall);
                 } 
@@ -466,10 +457,9 @@ class Game {
     }
 
     isWalkable(c, r, isGhost = false) {
-        // Bounds Check
+        // Strict Bounds Check (except tunnel row 13)
         if (r < 0 || r >= MAZE_H || c < 0 || c >= MAZE_W) {
-            // Allow tunnel
-            if (r === 13) return true; 
+            if (r === 13) return true; // Tunnel
             return false;
         }
         
@@ -480,8 +470,7 @@ class Game {
         
         // Ghost specific logic
         if (isGhost) {
-            // 5 is Door. Ghosts can pass IF they are Eaten (returning) OR if they are exiting (usually handled by target logic)
-            // For simplicity: Ghosts can pass doors if inside box or returning
+            // 5 is Door. Ghosts can pass IF they are Eaten (returning) OR if they are exiting
             if (val === 5) return true; 
             // 4 is House Interior
             if (val === 4) return true; 
@@ -492,10 +481,20 @@ class Game {
         
         return true;
     }
+
+    // Helper: Get pixel coord for a grid coord
+    getPixelForTile(col, row) {
+        const offsetX = (MAZE_W * TILE_SIZE) / 2;
+        const offsetZ = (MAZE_H * TILE_SIZE) / 2;
+        return {
+            x: col * TILE_SIZE - offsetX + (TILE_SIZE/2),
+            z: row * TILE_SIZE - offsetZ + (TILE_SIZE/2)
+        };
+    }
 }
 
 /**
- * BASE ACTOR
+ * BASE ACTOR - ROBUST MOVEMENT
  */
 class Actor {
     constructor(game) {
@@ -511,47 +510,74 @@ class Actor {
 
     setTile(col, row) {
         this.tilePos = { col, row };
-        this.snapToCenter();
-    }
-
-    snapToCenter() {
-        const offsetX = (MAZE_W * TILE_SIZE) / 2;
-        const offsetZ = (MAZE_H * TILE_SIZE) / 2;
-        this.pixelPos.x = this.tilePos.col * TILE_SIZE - offsetX + (TILE_SIZE/2);
-        this.pixelPos.z = this.tilePos.row * TILE_SIZE - offsetZ + (TILE_SIZE/2);
+        const center = this.game.getPixelForTile(col, row);
+        this.pixelPos.x = center.x;
+        this.pixelPos.z = center.z;
         this.mesh.position.set(this.pixelPos.x, 0, this.pixelPos.z);
     }
 
-    isAtCenter() {
-        const offsetX = (MAZE_W * TILE_SIZE) / 2;
-        const offsetZ = (MAZE_H * TILE_SIZE) / 2;
-        const idealX = this.tilePos.col * TILE_SIZE - offsetX + (TILE_SIZE/2);
-        const idealZ = this.tilePos.row * TILE_SIZE - offsetZ + (TILE_SIZE/2);
-        return (Math.abs(this.pixelPos.x - idealX) < 0.8 && Math.abs(this.pixelPos.z - idealZ) < 0.8);
-    }
+    // Returns TRUE if we hit/crossed the center of a tile this frame
+    drive(dt) {
+        // 1. Calculate ideal center of current tile
+        const center = this.game.getPixelForTile(this.tilePos.col, this.tilePos.row);
+        
+        // 2. Are we currently at center?
+        const distToCenter = Math.sqrt(
+            Math.pow(this.pixelPos.x - center.x, 2) + 
+            Math.pow(this.pixelPos.z - center.z, 2)
+        );
 
-    move(dt) {
-        this.pixelPos.x += this.dir.x * this.speed * dt;
-        this.pixelPos.z += this.dir.z * this.speed * dt;
+        // 3. Movement Amount
+        let moveAmt = this.speed * dt;
+        let reachedCenter = false;
 
-        // Tunnel Wrap
-        const offsetX = (MAZE_W * TILE_SIZE) / 2;
-        const limit = offsetX + TILE_SIZE;
-        if (this.pixelPos.x > limit) {
-            this.pixelPos.x = -limit;
-            this.tilePos.col = 0;
-        } else if (this.pixelPos.x < -limit) {
-            this.pixelPos.x = limit;
-            this.tilePos.col = MAZE_W - 1;
+        if (this.dir === NONE) {
+            // Not moving, just snap to center to be safe
+            this.pixelPos.x = center.x;
+            this.pixelPos.z = center.z;
+        } else {
+            // 4. Moving. Are we moving TOWARDS the center or AWAY?
+            // Dot product of (Center - Current) and Dir
+            const toCenterX = center.x - this.pixelPos.x;
+            const toCenterZ = center.z - this.pixelPos.z;
+            const dot = toCenterX * this.dir.x + toCenterZ * this.dir.z;
+
+            if (dot > 0) {
+                // Moving TOWARDS center
+                if (moveAmt >= distToCenter) {
+                    // We reach center this frame
+                    this.pixelPos.x = center.x;
+                    this.pixelPos.z = center.z;
+                    moveAmt -= distToCenter; // Remaining movement
+                    reachedCenter = true;
+                } else {
+                    // Just move closer
+                    this.pixelPos.x += this.dir.x * moveAmt;
+                    this.pixelPos.z += this.dir.z * moveAmt;
+                    moveAmt = 0;
+                }
+            } else {
+                // Moving AWAY from center (already passed it), just add pos
+                this.pixelPos.x += this.dir.x * moveAmt;
+                this.pixelPos.z += this.dir.z * moveAmt;
+                moveAmt = 0;
+            }
         }
 
-        // Calculate Grid Pos
-        const gx = Math.floor((this.pixelPos.x + offsetX) / TILE_SIZE);
-        const gz = Math.floor((this.pixelPos.z + (MAZE_H * TILE_SIZE)/2) / TILE_SIZE);
-        this.tilePos.col = gx;
-        this.tilePos.row = gz;
+        // Tunnel Wrap Check
+        const limit = (MAZE_W * TILE_SIZE) / 2 + TILE_SIZE;
+        if (this.pixelPos.x > limit) { this.pixelPos.x = -limit + 5; this.tilePos.col = 0; }
+        else if (this.pixelPos.x < -limit) { this.pixelPos.x = limit - 5; this.tilePos.col = MAZE_W - 1; }
+
+        // Update Grid Coordinates based on new Pixel Pos
+        const offsetX = (MAZE_W * TILE_SIZE) / 2;
+        const offsetZ = (MAZE_H * TILE_SIZE) / 2;
+        this.tilePos.col = Math.floor((this.pixelPos.x + offsetX) / TILE_SIZE);
+        this.tilePos.row = Math.floor((this.pixelPos.z + offsetZ) / TILE_SIZE);
 
         this.mesh.position.set(this.pixelPos.x, 0, this.pixelPos.z);
+        
+        return { reachedCenter, remainingDt: moveAmt > 0 ? moveAmt / this.speed : 0 };
     }
 }
 
@@ -566,14 +592,12 @@ class PacMan extends Actor {
         this.lives = 3;
         this.dead = false;
 
-        // Pacman Geometry
         const geo = new THREE.SphereGeometry(3.5, 16, 16, 0, Math.PI * 2, 0.2, Math.PI - 0.4);
         const mat = new THREE.MeshLambertMaterial({ color: color });
         this.body = new THREE.Mesh(geo, mat);
         this.body.rotation.x = -Math.PI/2;
         this.mesh.add(this.body);
 
-        // Add Bow for P2
         if (id === 2) {
             const bowGeo = new THREE.SphereGeometry(1.5, 8, 8);
             const bowMat = new THREE.MeshLambertMaterial({ color: 0xff0000 });
@@ -581,7 +605,6 @@ class PacMan extends Actor {
             bow.position.set(0, 0, -2);
             this.body.add(bow);
         }
-
         this.resetPosition();
     }
 
@@ -617,8 +640,7 @@ class PacMan extends Actor {
         // Waka Animation
         if (this.dir !== NONE) {
             const t = Date.now() * 0.02;
-            const s = (Math.sin(t) + 1) * 0.15 + 0.1;
-            this.body.scale.set(1, 1 - Math.sin(t)*0.2, 1);
+            this.body.scale.set(1, 1 - (Math.sin(t)+1)*0.1, 1);
         }
 
         // Input
@@ -637,20 +659,20 @@ class PacMan extends Actor {
         }
         if (input !== NONE) this.nextDir = input;
 
-        // Grid Logic
-        if (this.isAtCenter()) {
-            this.snapToCenter();
+        // Movement Step
+        const result = this.drive(dt);
+
+        if (result.reachedCenter || this.dir === NONE) {
+            // We are at a decision point.
             
-            // Try Turn
+            // 1. Can we turn to nextDir?
             if (this.nextDir !== NONE) {
-                const nc = this.tilePos.col + this.nextDir.x;
-                const nr = this.tilePos.row + this.nextDir.z;
-                
-                // Block if other player is there and idle? (Optional, kept loose for fun)
-                if (this.game.isWalkable(nc, nr)) {
+                const nextC = this.tilePos.col + this.nextDir.x;
+                const nextR = this.tilePos.row + this.nextDir.z;
+                if (this.game.isWalkable(nextC, nextR)) {
                     this.dir = this.nextDir;
                     this.nextDir = NONE;
-                    // Rotate
+                    // Rotate Visuals
                     if(this.dir === UP) this.body.rotation.z = Math.PI;
                     if(this.dir === DOWN) this.body.rotation.z = 0;
                     if(this.dir === LEFT) this.body.rotation.z = -Math.PI/2;
@@ -658,15 +680,23 @@ class PacMan extends Actor {
                 }
             }
 
-            // Stop if wall
-            if (!this.game.isWalkable(this.tilePos.col + this.dir.x, this.tilePos.row + this.dir.z)) {
+            // 2. Can we continue current dir?
+            const nextC = this.tilePos.col + this.dir.x;
+            const nextR = this.tilePos.row + this.dir.z;
+            if (!this.game.isWalkable(nextC, nextR)) {
+                // Hit wall
                 this.dir = NONE;
+            } else {
+                // If we have remaining DT from the snap, apply it now in the (potentially new) direction
+                if (result.remainingDt > 0 && this.dir !== NONE) {
+                    this.pixelPos.x += this.dir.x * this.speed * result.remainingDt;
+                    this.pixelPos.z += this.dir.z * this.speed * result.remainingDt;
+                    this.mesh.position.set(this.pixelPos.x, 0, this.pixelPos.z);
+                }
             }
         }
 
-        this.move(dt);
-
-        // Pellets
+        // Pellet Logic (Snap-independent)
         const pIdx = this.game.pellets.findIndex(p => p.active && p.x === this.tilePos.col && p.z === this.tilePos.row);
         if (pIdx !== -1) {
             const p = this.game.pellets[pIdx];
@@ -699,13 +729,11 @@ class Ghost extends Actor {
         this.body.position.y = 2;
         this.mesh.add(this.body);
 
-        // Skirt
         const skirtGeo = new THREE.CylinderGeometry(3.5, 4.5, 2, 8);
         const skirt = new THREE.Mesh(skirtGeo, this.mat);
         skirt.position.y = -2;
         this.body.add(skirt);
 
-        // Eyes
         const eyeGeo = new THREE.SphereGeometry(1.2, 8, 8);
         const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
         const pupilGeo = new THREE.SphereGeometry(0.6, 8, 8);
@@ -749,12 +777,9 @@ class Ghost extends Actor {
 
     getTarget() {
         if (this.mode === 'EATEN') return { col: 13, row: 11 };
-
-        // Target Logic
         const targets = this.game.players.filter(p => !p.dead);
         if(!targets.length) return {col: this.tilePos.col, row: this.tilePos.row};
         
-        // Pick closest player for basic targeting logic
         let targetP = targets[0];
         if (targets.length > 1) {
             const d1 = Math.abs(this.tilePos.col - targets[0].tilePos.col) + Math.abs(this.tilePos.row - targets[0].tilePos.row);
@@ -775,20 +800,20 @@ class Ghost extends Actor {
     }
 
     update(dt) {
-        if (this.isAtCenter()) {
-            this.snapToCenter();
-            
-            // Revive if returned
+        const result = this.drive(dt);
+
+        if (result.reachedCenter) {
+            // Revive
             if (this.mode === 'EATEN' && Math.abs(this.tilePos.col - 13) < 2 && Math.abs(this.tilePos.row - 14) < 2) {
                 this.setMode('CHASE');
-                this.dir = UP; // Exit house
+                this.dir = UP;
+                return;
             }
 
             const target = this.getTarget();
             const dirs = [UP, LEFT, DOWN, RIGHT];
             
             const valid = dirs.filter(d => {
-                // No immediate reverse unless frightened
                 if (this.mode !== 'FRIGHTENED' && d.x === -this.dir.x && d.z === -this.dir.z) return false;
                 return this.game.isWalkable(this.tilePos.col + d.x, this.tilePos.row + d.z, true);
             });
@@ -797,7 +822,6 @@ class Ghost extends Actor {
                 if (this.mode === 'FRIGHTENED') {
                     this.dir = valid[Math.floor(Math.random() * valid.length)];
                 } else {
-                    // Shortest path Euclidean
                     let best = valid[0];
                     let minD = 999999;
                     valid.forEach(d => {
@@ -807,7 +831,6 @@ class Ghost extends Actor {
                     this.dir = best;
                 }
             } else {
-                 // Dead end reverse
                  this.dir = { x: -this.dir.x, z: -this.dir.z };
             }
 
@@ -816,9 +839,14 @@ class Ghost extends Actor {
             if(this.dir === DOWN) this.eyes.rotation.y = 0;
             if(this.dir === LEFT) this.eyes.rotation.y = -Math.PI/2;
             if(this.dir === RIGHT) this.eyes.rotation.y = Math.PI/2;
-        }
 
-        this.move(dt);
+            // Apply remaining movement in new dir
+            if (result.remainingDt > 0) {
+                this.pixelPos.x += this.dir.x * this.speed * result.remainingDt;
+                this.pixelPos.z += this.dir.z * this.speed * result.remainingDt;
+                this.mesh.position.set(this.pixelPos.x, 0, this.pixelPos.z);
+            }
+        }
 
         // Collision
         this.game.players.forEach(p => {
