@@ -6,14 +6,20 @@ import * as THREE from 'three';
 const TILE_SIZE = 10;
 const MAZE_W = 28;
 const MAZE_H = 31;
-const SPEED_NORMAL = 50; // Units per second
-const SPEED_FRIGHT = 30;
+const SPEED_NORMAL = 50; 
+const SPEED_FRIGHT = 35;
 const SPEED_GHOST_NORMAL = 45;
 const SPEED_GHOST_FRIGHT = 25;
-const GHOST_HOUSE_Y = 14 * TILE_SIZE; // Center of map vertically roughly
 
-// 0: Empty, 1: Wall, 2: Pellet, 3: Power Pellet, 4: Ghost House (no entry), 5: Door
-// Standard Arcade Map Layout
+// KEY:
+// 0 = Tunnel / Empty (Walkable)
+// 1 = Wall (Block)
+// 2 = Pellet (Walkable)
+// 3 = Power Pellet (Walkable)
+// 4 = Ghost House (No Entry for Pacman)
+// 5 = Ghost House Door (Visual, blocks Pacman usually)
+// 9 = Empty Path (No pellet)
+
 const MAP_LAYOUT = [
     "1111111111111111111111111111",
     "1222222222222112222222222221",
@@ -24,19 +30,19 @@ const MAP_LAYOUT = [
     "1211112112111111112112111121",
     "1211112112111111112112111121",
     "1222222112222112222112222221",
-    "1111112111110110111112111111",
-    "0000012110000000000112100000",
-    "0000012110111551110112100000",
-    "1111112110100000010112111111",
-    "0000002000100000010002000000", // Tunnel row
-    "1111112110100000010112111111",
-    "0000012110111111110112100000",
-    "0000012110000000000112100000",
-    "1111112110111111110112111111",
+    "1111112111119119111112111111",
+    "0000012111119119111112100000",
+    "0000012119999999999112100000",
+    "1111112119111551119112111111", // Row 12
+    "9999992999144444419992999999", // Row 13 (Tunnel Row)
+    "1111112119111111119112111111",
+    "0000012119999999999112100000",
+    "0000012119111111119112100000",
+    "1111112119111111119112111111",
     "1222222222222112222222222221",
     "1211112111112112111112111121",
-    "1222112000000000000002112221",
-    "1312112112111111112112112131",
+    "1321112999999999999992111231",
+    "1121112112111111112112111211",
     "1222222112222112222112222221",
     "1211111111112112111111111121",
     "1211111111112112111111111121",
@@ -52,18 +58,27 @@ const RIGHT = { x: 1, z: 0 };
 const NONE = { x: 0, z: 0 };
 
 /**
- * AUDIO SYNTHESIZER (No external files)
+ * AUDIO SYNTHESIZER
  */
 class SoundManager {
     constructor() {
         this.ctx = new (window.AudioContext || window.webkitAudioContext)();
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = 0.15;
+        this.masterGain.gain.value = 0.10;
         this.masterGain.connect(this.ctx.destination);
+        this.enabled = false;
+    }
+
+    tryInit() {
+        if(this.ctx.state === 'suspended') {
+            this.ctx.resume().then(() => { this.enabled = true; });
+        } else {
+            this.enabled = true;
+        }
     }
 
     playTone(freq, type, duration, time = 0) {
-        if(this.ctx.state === 'suspended') this.ctx.resume();
+        if(!this.enabled) return;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = type;
@@ -79,41 +94,42 @@ class SoundManager {
     }
 
     playIntro() {
-        // Simple scale
-        [0, 0.1, 0.2, 0.3, 0.4].forEach((t, i) => {
-            this.playTone(400 + (i * 100), 'square', 0.1, t);
+        this.tryInit();
+        [0, 0.15, 0.30, 0.45].forEach((t, i) => {
+            this.playTone(300 + (i * 100), 'square', 0.1, t);
         });
+        setTimeout(() => {
+             this.playTone(600, 'square', 0.3, 0);
+        }, 600);
     }
 
     playWaka() {
-        // Debounce waka
+        this.tryInit();
         const now = this.ctx.currentTime;
-        if (this.lastWaka && now - this.lastWaka < 0.25) return;
-        this.playTone(200, 'triangle', 0.1);
-        this.playTone(400, 'triangle', 0.1, 0.12);
+        if (this.lastWaka && now - this.lastWaka < 0.15) return;
+        this.playTone(150, 'triangle', 0.08);
+        this.playTone(250, 'triangle', 0.08, 0.09);
         this.lastWaka = now;
     }
 
     playEatGhost() {
-        this.playTone(800, 'sawtooth', 0.1);
-        this.playTone(1200, 'sawtooth', 0.2, 0.1);
+        this.playTone(600, 'sawtooth', 0.1);
+        this.playTone(900, 'sawtooth', 0.2, 0.1);
     }
 
     playDeath() {
-        for(let i=0; i<10; i++) {
-            this.playTone(500 - (i*50), 'sawtooth', 0.1, i*0.1);
+        for(let i=0; i<8; i++) {
+            this.playTone(400 - (i*50), 'sawtooth', 0.1, i*0.1);
         }
     }
 }
 
 /**
- * GAME STATE & LOGIC
+ * GAME ENGINE
  */
 class Game {
     constructor() {
         this.scene = new THREE.Scene();
-        this.camera = null;
-        this.renderer = null;
         this.audio = new SoundManager();
         
         this.twoPlayerMode = false;
@@ -122,24 +138,16 @@ class Game {
         this.actors = [];
         this.ghosts = [];
         this.players = [];
-        
-        this.state = 'MENU'; // MENU, READY, PLAYING, DYING, GAMEOVER
+        this.grid = []; 
+
+        this.state = 'MENU';
         this.level = 1;
-        
-        // Timer for ghosts
         this.modeTimer = 0;
-        this.ghostMode = 'SCATTER'; // SCATTER, CHASE
+        this.ghostMode = 'SCATTER';
         this.frightenedTime = 0;
         this.ghostCombo = 0;
-
-        this.grid = []; // 2D array of maze
-
         this.lastFrameTime = 0;
 
-        this.initThree();
-        this.buildMaze();
-        this.setupInput();
-        
         this.ui = {
             title: document.getElementById('center-message'),
             mainText: document.getElementById('main-title'),
@@ -152,23 +160,25 @@ class Game {
             btn2p: document.getElementById('btn-2p')
         };
 
-        // Render Loop
+        this.initThree();
+        this.buildMaze();
+        this.setupInput();
+
         requestAnimationFrame(this.loop.bind(this));
     }
 
     initThree() {
         const aspect = window.innerWidth / window.innerHeight;
-        // Orthographic camera for 2.5D look
-        const frustumSize = 400;
+        const frustumSize = 350; // Zoom level
         this.camera = new THREE.OrthographicCamera(
             frustumSize * aspect / -2, frustumSize * aspect / 2,
             frustumSize / 2, frustumSize / -2,
             1, 1000
         );
         
-        // Tilted view
-        this.camera.position.set(0, 200, 200); 
-        this.camera.lookAt(0, 0, 0);
+        // Isometric-ish view
+        this.camera.position.set(0, 200, 150); 
+        this.camera.lookAt(0, 0, 15);
 
         this.renderer = new THREE.WebGLRenderer({ 
             canvas: document.getElementById('game-canvas'), 
@@ -177,16 +187,15 @@ class Game {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setClearColor(0x050505);
 
-        // Lights
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
         this.scene.add(ambientLight);
 
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
         dirLight.position.set(50, 100, 50);
         this.scene.add(dirLight);
 
         // Floor
-        const floorGeo = new THREE.PlaneGeometry(1000, 1000);
+        const floorGeo = new THREE.PlaneGeometry(MAZE_W * TILE_SIZE + 20, MAZE_H * TILE_SIZE + 20);
         const floorMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
         const floor = new THREE.Mesh(floorGeo, floorMat);
         floor.rotation.x = -Math.PI / 2;
@@ -195,15 +204,21 @@ class Game {
     }
 
     buildMaze() {
-        // Clear old maze if exists
+        // Cleanup
         this.walls.forEach(w => this.scene.remove(w));
         this.pellets.forEach(p => this.scene.remove(p.mesh));
         this.walls = [];
         this.pellets = [];
         this.grid = [];
 
+        // Geometries
+        // CHANGE: Width/Depth = ~9, Height = 2. This makes them thin, flat plates.
+        const boxSize = TILE_SIZE * 0.9;
+        const wallHeight = 2; 
+        const wallGeo = new THREE.BoxGeometry(boxSize, wallHeight, boxSize);
+        
         const wallMat = new THREE.MeshLambertMaterial({ color: 0x2121de, emissive: 0x111199 });
-        const pelletGeo = new THREE.SphereGeometry(1.5, 8, 8);
+        const pelletGeo = new THREE.SphereGeometry(1.5, 6, 6);
         const powerGeo = new THREE.SphereGeometry(3.5, 8, 8);
         const pelletMat = new THREE.MeshLambertMaterial({ color: 0xffb8ae });
 
@@ -214,39 +229,36 @@ class Game {
             const rowArr = [];
             for (let col = 0; col < MAP_LAYOUT[row].length; col++) {
                 const char = MAP_LAYOUT[row][col];
+                const val = parseInt(char);
+                rowArr.push(val);
+
                 const x = col * TILE_SIZE - offsetX + (TILE_SIZE/2);
                 const z = row * TILE_SIZE - offsetZ + (TILE_SIZE/2);
-                
-                rowArr.push(parseInt(char));
 
-                // 1: Wall
-                if (char === '1') {
-                    const h = TILE_SIZE;
-                    const wGeo = new THREE.BoxGeometry(TILE_SIZE, h, TILE_SIZE);
-                    // Slightly shrink to see grid lines
-                    wGeo.scale(0.95, 1, 0.95); 
-                    const wall = new THREE.Mesh(wGeo, wallMat);
-                    wall.position.set(x, h/2 - 5, z);
+                if (val === 1) {
+                    // WALL
+                    const wall = new THREE.Mesh(wallGeo, wallMat);
+                    wall.position.set(x, -2, z); // Lower slightly so they are near floor
                     this.scene.add(wall);
                     this.walls.push(wall);
                 } 
-                // 2: Pellet
-                else if (char === '2') {
+                else if (val === 2) {
+                    // PELLET
                     const p = new THREE.Mesh(pelletGeo, pelletMat);
                     p.position.set(x, 0, z);
                     this.scene.add(p);
                     this.pellets.push({ mesh: p, type: 'normal', x: col, z: row, active: true });
                 }
-                // 3: Power Pellet
-                else if (char === '3') {
+                else if (val === 3) {
+                    // POWER
                     const p = new THREE.Mesh(powerGeo, pelletMat);
                     p.position.set(x, 0, z);
                     this.scene.add(p);
                     this.pellets.push({ mesh: p, type: 'power', x: col, z: row, active: true });
                 }
-                // 5: Door (Visual only, blocks ghosts mostly but logic handled in AI)
-                else if (char === '5') {
-                    const doorGeo = new THREE.BoxGeometry(TILE_SIZE, 2, TILE_SIZE/2);
+                else if (val === 5) {
+                    // DOOR
+                    const doorGeo = new THREE.BoxGeometry(TILE_SIZE, 1, 2);
                     const doorMat = new THREE.MeshBasicMaterial({ color: 0xffb8ff, transparent: true, opacity: 0.5 });
                     const door = new THREE.Mesh(doorGeo, doorMat);
                     door.position.set(x, 0, z);
@@ -260,22 +272,16 @@ class Game {
     setupInput() {
         this.keys = {};
         window.addEventListener('keydown', (e) => {
-            if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].indexOf(e.key) > -1) {
-                e.preventDefault();
-            }
+            if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
             this.keys[e.key] = true;
 
-            // UI Navigation
             if(this.state === 'MENU') {
                 if(e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'w' || e.key === 's') {
                     this.twoPlayerMode = !this.twoPlayerMode;
                     this.updateMenuUI();
                 }
-                if(e.key === ' ' || e.key === 'Enter') {
-                    this.startGame();
-                }
+                if(e.key === ' ' || e.key === 'Enter') this.startGame();
             }
-            // Restart
             if(this.state === 'GAMEOVER' && (e.key === ' ' || e.key === 'Enter')) {
                 this.resetGame();
             }
@@ -294,29 +300,26 @@ class Game {
     }
 
     createActors() {
-        // Clear old
         this.actors.forEach(a => this.scene.remove(a.mesh));
         this.players = [];
         this.ghosts = [];
         this.actors = [];
 
-        // Player 1
+        // P1 (Yellow)
         const p1 = new PacMan(this, 1, 0xffff00);
         this.players.push(p1);
 
-        // Player 2
+        // P2 (Ms Pac Pink)
         if (this.twoPlayerMode) {
-            const p2 = new PacMan(this, 2, 0xffb8ff); // Ms Pac color
+            const p2 = new PacMan(this, 2, 0xffb8ff); 
             this.players.push(p2);
         }
 
-        // Ghosts
-        // Red, Pink, Blue(Cyan), Orange
-        const colors = [0xff0000, 0xffb8ff, 0x00ffff, 0xffb852];
-        const types = ['BLINKY', 'PINKY', 'INKY', 'CLYDE'];
+        const gColors = [0xff0000, 0xffb8ff, 0x00ffff, 0xffb852];
+        const gTypes = ['BLINKY', 'PINKY', 'INKY', 'CLYDE'];
         
-        types.forEach((type, i) => {
-            const g = new Ghost(this, type, colors[i]);
+        gTypes.forEach((type, i) => {
+            const g = new Ghost(this, type, gColors[i]);
             this.ghosts.push(g);
         });
 
@@ -334,25 +337,22 @@ class Game {
     }
 
     startGame() {
+        this.audio.tryInit();
         this.ui.title.style.display = 'none';
         this.createActors();
         this.resetLevel();
         this.audio.playIntro();
         
-        // Reset Scores
         this.players.forEach(p => {
             p.score = 0;
             p.lives = 3;
             p.updateUI();
         });
 
-        setTimeout(() => {
-            this.state = 'PLAYING';
-        }, 4000); // Wait for intro sound roughly
+        setTimeout(() => { this.state = 'PLAYING'; }, 4000);
     }
 
     resetLevel() {
-        // Reset positions
         this.players.forEach(p => p.resetPosition());
         this.ghosts.forEach(g => g.resetPosition());
         
@@ -360,6 +360,7 @@ class Game {
         this.ui.title.style.display = 'block';
         this.ui.title.style.background = 'transparent';
         this.ui.title.style.border = 'none';
+        this.ui.title.style.boxShadow = 'none';
         this.ui.mainText.innerText = "READY!";
         this.ui.subText.style.display = 'none';
         document.getElementById('mode-select').style.display = "none";
@@ -367,6 +368,8 @@ class Game {
         setTimeout(() => {
             if(this.state !== 'GAMEOVER') {
                 this.ui.title.style.display = 'none';
+                this.ui.title.style.background = 'rgba(0,0,0,0.9)';
+                this.ui.title.style.border = '4px double var(--neon-blue)';
                 this.state = 'PLAYING';
             }
         }, 2000);
@@ -374,12 +377,10 @@ class Game {
 
     loop(time) {
         requestAnimationFrame(this.loop.bind(this));
-        
-        const dt = (time - this.lastFrameTime) / 1000;
+        const dt = Math.min((time - this.lastFrameTime) / 1000, 0.1); // Cap dt
         this.lastFrameTime = time;
 
         if (this.state === 'PLAYING') {
-            // Update Ghost Modes
             if (this.frightenedTime > 0) {
                 this.frightenedTime -= dt;
                 if (this.frightenedTime <= 0) {
@@ -388,7 +389,6 @@ class Game {
                 }
             } else {
                 this.modeTimer += dt;
-                // Simple mode switching logic: 7s Scatter / 20s Chase cycle
                 const cycle = this.modeTimer % 27;
                 const newMode = cycle < 7 ? 'SCATTER' : 'CHASE';
                 if (newMode !== this.ghostMode) {
@@ -397,48 +397,31 @@ class Game {
                 }
             }
 
-            // Update Actors
-            this.players.forEach(p => {
-                if(!p.dead) p.update(dt);
-            });
+            this.players.forEach(p => { if(!p.dead) p.update(dt); });
             this.ghosts.forEach(g => g.update(dt));
 
-            // Check Win Condition
-            const remaining = this.pellets.filter(p => p.active).length;
-            if(remaining === 0) {
-                this.levelComplete();
-            }
-
-            // Check Game Over Condition
-            const alive = this.players.filter(p => p.lives > 0).length;
-            if(alive === 0) {
-                this.gameOver();
-            }
+            if(this.pellets.filter(p => p.active).length === 0) this.levelComplete();
+            if(this.players.filter(p => p.lives > 0).length === 0) this.gameOver();
         }
 
         this.renderer.render(this.scene, this.camera);
     }
 
-    activatePowerPellet(player) {
+    activatePowerPellet() {
         this.preFrightMode = (this.ghostMode === 'FRIGHTENED') ? this.preFrightMode : this.ghostMode;
         this.ghostMode = 'FRIGHTENED';
-        this.frightenedTime = 6; // 6 seconds
+        this.frightenedTime = 6;
         this.ghostCombo = 0;
-        
         this.ghosts.forEach(g => {
             g.setMode('FRIGHTENED');
-            // Reverse direction immediately on frighten
-            g.dir = { x: -g.dir.x, z: -g.dir.z };
+            // Reverse
+            if(g.mode !== 'EATEN') g.dir = { x: -g.dir.x, z: -g.dir.z };
         });
-        
-        // Slightly boost player score or combo logic here
-        this.audio.playTone(600, 'sine', 0.1); // Power sound
     }
 
     handleGhostEat(ghost, player) {
         this.ghostCombo++;
-        const score = 200 * Math.pow(2, this.ghostCombo - 1);
-        player.addScore(score);
+        player.addScore(200 * Math.pow(2, this.ghostCombo - 1));
         ghost.setMode('EATEN');
         this.audio.playEatGhost();
     }
@@ -446,25 +429,16 @@ class Game {
     playerDied(player) {
         player.lives--;
         player.dead = true;
-        player.mesh.visible = false; // Hide immediately
+        player.mesh.visible = false;
         player.updateUI();
         this.audio.playDeath();
 
-        // Check if all dead
-        const allDead = this.players.every(p => p.dead || p.lives <= 0);
-        
-        if (allDead) {
+        if (this.players.every(p => p.dead || p.lives <= 0)) {
             this.state = 'DYING';
             setTimeout(() => {
-                // If lives remain, reset level. Else Game Over.
                 const anyLives = this.players.some(p => p.lives > 0);
                 if (anyLives) {
-                    this.players.forEach(p => {
-                        if (p.lives > 0) {
-                            p.dead = false;
-                            p.mesh.visible = true;
-                        }
-                    });
+                    this.players.forEach(p => { if(p.lives > 0) { p.dead = false; p.mesh.visible = true; }});
                     this.resetLevel();
                 } else {
                     this.gameOver();
@@ -475,10 +449,9 @@ class Game {
 
     levelComplete() {
         this.state = 'READY';
-        this.audio.playIntro(); // Victory jingle placeholder
         setTimeout(() => {
             this.level++;
-            this.buildMaze(); // Reset pellets
+            this.buildMaze();
             this.resetLevel();
         }, 3000);
     }
@@ -486,34 +459,49 @@ class Game {
     gameOver() {
         this.state = 'GAMEOVER';
         this.ui.title.style.display = 'block';
-        this.ui.title.style.background = 'rgba(0,0,0,0.9)';
-        this.ui.title.style.border = '2px solid red';
         this.ui.mainText.innerText = "GAME OVER";
         this.ui.subText.innerText = "PRESS SPACE TO RESTART";
         this.ui.subText.style.display = 'block';
         document.getElementById('mode-select').style.display = "none";
     }
 
-    // Utility: Is tile walkable?
     isWalkable(c, r, isGhost = false) {
-        if (r < 0 || r >= MAZE_H || c < 0 || c >= MAZE_W) return false; // Bounds
+        // Bounds Check
+        if (r < 0 || r >= MAZE_H || c < 0 || c >= MAZE_W) {
+            // Allow tunnel
+            if (r === 13) return true; 
+            return false;
+        }
+        
         const val = this.grid[r][c];
-        if (val === 1) return false; // Wall
-        if (isGhost && val === 5) return false; // Ghost House Door (usually ghosts can exit but strictly not enter unless dead)
-        // Tunnel Logic: handled in movement update
+        
+        // 1 is Wall
+        if (val === 1) return false;
+        
+        // Ghost specific logic
+        if (isGhost) {
+            // 5 is Door. Ghosts can pass IF they are Eaten (returning) OR if they are exiting (usually handled by target logic)
+            // For simplicity: Ghosts can pass doors if inside box or returning
+            if (val === 5) return true; 
+            // 4 is House Interior
+            if (val === 4) return true; 
+        } else {
+            // Pacman cannot enter house or door
+            if (val === 4 || val === 5) return false;
+        }
+        
         return true;
     }
 }
 
 /**
- * BASE ACTOR CLASS (Movement & Collision)
+ * BASE ACTOR
  */
 class Actor {
     constructor(game) {
         this.game = game;
         this.mesh = new THREE.Group();
         this.game.scene.add(this.mesh);
-        
         this.tilePos = { col: 1, row: 1 };
         this.pixelPos = { x: 0, z: 0 };
         this.dir = NONE;
@@ -523,81 +511,76 @@ class Actor {
 
     setTile(col, row) {
         this.tilePos = { col, row };
-        const offsetX = (MAZE_W * TILE_SIZE) / 2;
-        const offsetZ = (MAZE_H * TILE_SIZE) / 2;
-        this.pixelPos.x = col * TILE_SIZE - offsetX + (TILE_SIZE/2);
-        this.pixelPos.z = row * TILE_SIZE - offsetZ + (TILE_SIZE/2);
-        this.updateMeshPos();
+        this.snapToCenter();
     }
 
-    updateMeshPos() {
-        this.mesh.position.set(this.pixelPos.x, 0, this.pixelPos.z);
-    }
-
-    // Check if actor is exactly at the center of a tile (within small threshold)
-    isAtCenter() {
-        const offsetX = (MAZE_W * TILE_SIZE) / 2;
-        const offsetZ = (MAZE_H * TILE_SIZE) / 2;
-        
-        const idealX = this.tilePos.col * TILE_SIZE - offsetX + (TILE_SIZE/2);
-        const idealZ = this.tilePos.row * TILE_SIZE - offsetZ + (TILE_SIZE/2);
-
-        return (Math.abs(this.pixelPos.x - idealX) < 0.5 && Math.abs(this.pixelPos.z - idealZ) < 0.5);
-    }
-    
     snapToCenter() {
         const offsetX = (MAZE_W * TILE_SIZE) / 2;
         const offsetZ = (MAZE_H * TILE_SIZE) / 2;
         this.pixelPos.x = this.tilePos.col * TILE_SIZE - offsetX + (TILE_SIZE/2);
         this.pixelPos.z = this.tilePos.row * TILE_SIZE - offsetZ + (TILE_SIZE/2);
-        this.updateMeshPos();
+        this.mesh.position.set(this.pixelPos.x, 0, this.pixelPos.z);
+    }
+
+    isAtCenter() {
+        const offsetX = (MAZE_W * TILE_SIZE) / 2;
+        const offsetZ = (MAZE_H * TILE_SIZE) / 2;
+        const idealX = this.tilePos.col * TILE_SIZE - offsetX + (TILE_SIZE/2);
+        const idealZ = this.tilePos.row * TILE_SIZE - offsetZ + (TILE_SIZE/2);
+        return (Math.abs(this.pixelPos.x - idealX) < 0.8 && Math.abs(this.pixelPos.z - idealZ) < 0.8);
     }
 
     move(dt) {
-        // Simple Euler integration
         this.pixelPos.x += this.dir.x * this.speed * dt;
         this.pixelPos.z += this.dir.z * this.speed * dt;
 
         // Tunnel Wrap
         const offsetX = (MAZE_W * TILE_SIZE) / 2;
-        if (this.pixelPos.x > offsetX) {
-            this.pixelPos.x = -offsetX;
+        const limit = offsetX + TILE_SIZE;
+        if (this.pixelPos.x > limit) {
+            this.pixelPos.x = -limit;
             this.tilePos.col = 0;
-        } else if (this.pixelPos.x < -offsetX) {
-            this.pixelPos.x = offsetX;
+        } else if (this.pixelPos.x < -limit) {
+            this.pixelPos.x = limit;
             this.tilePos.col = MAZE_W - 1;
         }
 
-        // Update grid coordinates based on pixel position
-        const gridX = Math.floor((this.pixelPos.x + offsetX) / TILE_SIZE);
-        const gridZ = Math.floor((this.pixelPos.z + (MAZE_H * TILE_SIZE) / 2) / TILE_SIZE);
-        
-        // Basic clamp to avoid index out of bounds during tunnel transition
-        this.tilePos.col = Math.max(0, Math.min(MAZE_W-1, gridX));
-        this.tilePos.row = Math.max(0, Math.min(MAZE_H-1, gridZ));
+        // Calculate Grid Pos
+        const gx = Math.floor((this.pixelPos.x + offsetX) / TILE_SIZE);
+        const gz = Math.floor((this.pixelPos.z + (MAZE_H * TILE_SIZE)/2) / TILE_SIZE);
+        this.tilePos.col = gx;
+        this.tilePos.row = gz;
 
-        this.updateMeshPos();
+        this.mesh.position.set(this.pixelPos.x, 0, this.pixelPos.z);
     }
 }
 
 /**
- * PAC-MAN
+ * PACMAN
  */
 class PacMan extends Actor {
     constructor(game, id, color) {
         super(game);
-        this.id = id; // 1 or 2
+        this.id = id; 
         this.score = 0;
         this.lives = 3;
         this.dead = false;
 
-        // Visuals
-        const geo = new THREE.SphereGeometry(4, 16, 16, 0, Math.PI * 2, 0.2, Math.PI - 0.4);
+        // Pacman Geometry
+        const geo = new THREE.SphereGeometry(3.5, 16, 16, 0, Math.PI * 2, 0.2, Math.PI - 0.4);
         const mat = new THREE.MeshLambertMaterial({ color: color });
         this.body = new THREE.Mesh(geo, mat);
-        // Rotate so the "mouth" (gap in sphere) faces forward
-        this.body.rotation.x = -Math.PI/2; 
+        this.body.rotation.x = -Math.PI/2;
         this.mesh.add(this.body);
+
+        // Add Bow for P2
+        if (id === 2) {
+            const bowGeo = new THREE.SphereGeometry(1.5, 8, 8);
+            const bowMat = new THREE.MeshLambertMaterial({ color: 0xff0000 });
+            const bow = new THREE.Mesh(bowGeo, bowMat);
+            bow.position.set(0, 0, -2);
+            this.body.add(bow);
+        }
 
         this.resetPosition();
     }
@@ -608,122 +591,93 @@ class PacMan extends Actor {
         this.dead = false;
         this.mesh.visible = true;
         this.body.rotation.z = 0;
-        
-        // P1 Start: Row 23, Col 13/14
-        // P2 Start: Offset slightly
-        if (this.id === 1) this.setTile(13, 23);
-        else this.setTile(14, 23);
+        this.setTile(this.id === 1 ? 13 : 14, 23);
     }
 
     updateUI() {
         if(this.id === 1) {
             this.game.ui.p1Score.innerText = this.score;
-            this.game.ui.p1Lives.innerText = "❤".repeat(this.lives);
+            this.game.ui.p1Lives.innerText = "● ".repeat(this.lives);
         } else {
             this.game.ui.p2Score.innerText = this.score;
-            this.game.ui.p2Lives.innerText = "❤".repeat(this.lives);
+            this.game.ui.p2Lives.innerText = "● ".repeat(this.lives);
         }
     }
 
-    addScore(points) {
-        this.score += points;
+    addScore(pts) {
+        this.score += pts;
         this.updateUI();
-        // High Score logic
         const hs = document.getElementById('high-score');
-        const currentHi = parseInt(hs.innerText) || 0;
-        if(this.score > currentHi) hs.innerText = this.score;
-    }
-
-    getInput() {
-        // P1: Arrows, P2: WASD
-        if (this.id === 1) {
-            if (this.game.keys['ArrowUp']) return UP;
-            if (this.game.keys['ArrowDown']) return DOWN;
-            if (this.game.keys['ArrowLeft']) return LEFT;
-            if (this.game.keys['ArrowRight']) return RIGHT;
-        } else {
-            if (this.game.keys['w']) return UP;
-            if (this.game.keys['s']) return DOWN;
-            if (this.game.keys['a']) return LEFT;
-            if (this.game.keys['d']) return RIGHT;
-        }
-        return NONE;
+        if(this.score > (parseInt(hs.innerText)||0)) hs.innerText = this.score;
     }
 
     update(dt) {
         if (this.dead) return;
 
-        // Mouth Animation
+        // Waka Animation
         if (this.dir !== NONE) {
-            const time = Date.now() * 0.015;
-            const mouthSize = (Math.sin(time) + 1) * 0.2 + 0.1; // 0.1 to 0.5
-            // Three.js SphereGeometry parameters modification is tricky in realtime, 
-            // usually easier to rotate two halves. For this simple version, we scale Y slightly.
-            this.body.scale.set(1, 1 - (Math.sin(time)*0.2), 1);
+            const t = Date.now() * 0.02;
+            const s = (Math.sin(t) + 1) * 0.15 + 0.1;
+            this.body.scale.set(1, 1 - Math.sin(t)*0.2, 1);
         }
 
-        // Input Handling
-        const input = this.getInput();
+        // Input
+        let input = NONE;
+        const k = this.game.keys;
+        if (this.id === 1) {
+            if (k['ArrowUp']) input = UP;
+            else if (k['ArrowDown']) input = DOWN;
+            else if (k['ArrowLeft']) input = LEFT;
+            else if (k['ArrowRight']) input = RIGHT;
+        } else {
+            if (k['w']) input = UP;
+            else if (k['s']) input = DOWN;
+            else if (k['a']) input = LEFT;
+            else if (k['d']) input = RIGHT;
+        }
         if (input !== NONE) this.nextDir = input;
 
-        // Movement Logic
+        // Grid Logic
         if (this.isAtCenter()) {
-            this.snapToCenter(); // Keep aligned
-
-            // Try to turn
+            this.snapToCenter();
+            
+            // Try Turn
             if (this.nextDir !== NONE) {
-                if (this.game.isWalkable(this.tilePos.col + this.nextDir.x, this.tilePos.row + this.nextDir.z)) {
-                    // Check Collision with other player
-                    const otherPlayer = this.game.players.find(p => p !== this);
-                    const targetCol = this.tilePos.col + this.nextDir.x;
-                    const targetRow = this.tilePos.row + this.nextDir.z;
-                    
-                    let blocked = false;
-                    if(otherPlayer && !otherPlayer.dead && otherPlayer.tilePos.col === targetCol && otherPlayer.tilePos.row === targetRow) {
-                        blocked = true;
-                    }
-
-                    if(!blocked) {
-                        this.dir = this.nextDir;
-                        this.nextDir = NONE;
-                        // Rotate mesh
-                        if(this.dir === UP) this.body.rotation.z = Math.PI; // Face up (geometry dependent)
-                        if(this.dir === DOWN) this.body.rotation.z = 0;
-                        if(this.dir === LEFT) this.body.rotation.z = -Math.PI/2;
-                        if(this.dir === RIGHT) this.body.rotation.z = Math.PI/2;
-                    }
+                const nc = this.tilePos.col + this.nextDir.x;
+                const nr = this.tilePos.row + this.nextDir.z;
+                
+                // Block if other player is there and idle? (Optional, kept loose for fun)
+                if (this.game.isWalkable(nc, nr)) {
+                    this.dir = this.nextDir;
+                    this.nextDir = NONE;
+                    // Rotate
+                    if(this.dir === UP) this.body.rotation.z = Math.PI;
+                    if(this.dir === DOWN) this.body.rotation.z = 0;
+                    if(this.dir === LEFT) this.body.rotation.z = -Math.PI/2;
+                    if(this.dir === RIGHT) this.body.rotation.z = Math.PI/2;
                 }
             }
 
-            // Check if can continue current dir
+            // Stop if wall
             if (!this.game.isWalkable(this.tilePos.col + this.dir.x, this.tilePos.row + this.dir.z)) {
                 this.dir = NONE;
-            } else {
-                // Check player collision in current dir
-                 const otherPlayer = this.game.players.find(p => p !== this);
-                 const targetCol = this.tilePos.col + this.dir.x;
-                 const targetRow = this.tilePos.row + this.dir.z;
-                 if(otherPlayer && !otherPlayer.dead && otherPlayer.tilePos.col === targetCol && otherPlayer.tilePos.row === targetRow && otherPlayer.dir === NONE) {
-                    this.dir = NONE; // Blocked by idle player
-                 }
             }
         }
 
         this.move(dt);
 
-        // Pellet Collision
-        const pIndex = this.game.pellets.findIndex(p => p.active && p.x === this.tilePos.col && p.z === this.tilePos.row);
-        if (pIndex !== -1) {
-            const pellet = this.game.pellets[pIndex];
-            pellet.active = false;
-            pellet.mesh.visible = false;
-            
-            if (pellet.type === 'normal') {
+        // Pellets
+        const pIdx = this.game.pellets.findIndex(p => p.active && p.x === this.tilePos.col && p.z === this.tilePos.row);
+        if (pIdx !== -1) {
+            const p = this.game.pellets[pIdx];
+            p.active = false;
+            p.mesh.visible = false;
+            if(p.type === 'normal') {
                 this.addScore(10);
                 this.game.audio.playWaka();
             } else {
                 this.addScore(50);
-                this.game.activatePowerPellet(this);
+                this.game.activatePowerPellet();
             }
         }
     }
@@ -735,38 +689,35 @@ class PacMan extends Actor {
 class Ghost extends Actor {
     constructor(game, type, color) {
         super(game);
-        this.type = type; // BLINKY, PINKY, INKY, CLYDE
+        this.type = type;
         this.baseColor = color;
-        this.mode = 'SCATTER'; // SCATTER, CHASE, FRIGHTENED, EATEN
+        this.mode = 'SCATTER';
 
-        // Shape: Cylinder with round top
         const geo = new THREE.CapsuleGeometry(3.5, 4, 4, 8);
         this.mat = new THREE.MeshLambertMaterial({ color: color });
         this.body = new THREE.Mesh(geo, this.mat);
         this.body.position.y = 2;
         this.mesh.add(this.body);
 
+        // Skirt
+        const skirtGeo = new THREE.CylinderGeometry(3.5, 4.5, 2, 8);
+        const skirt = new THREE.Mesh(skirtGeo, this.mat);
+        skirt.position.y = -2;
+        this.body.add(skirt);
+
         // Eyes
-        const eyeGeo = new THREE.SphereGeometry(1, 8, 8);
+        const eyeGeo = new THREE.SphereGeometry(1.2, 8, 8);
         const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-        const pupilGeo = new THREE.SphereGeometry(0.5, 8, 8);
+        const pupilGeo = new THREE.SphereGeometry(0.6, 8, 8);
         const pupilMat = new THREE.MeshBasicMaterial({ color: 0x0000dd });
 
         this.eyes = new THREE.Group();
-        const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
-        const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
-        leftEye.position.set(-1.5, 3, 2);
-        rightEye.position.set(1.5, 3, 2);
-        
-        const leftPupil = new THREE.Mesh(pupilGeo, pupilMat);
-        const rightPupil = new THREE.Mesh(pupilGeo, pupilMat);
-        leftPupil.position.set(0, 0, 0.8);
-        rightPupil.position.set(0, 0, 0.8);
-        
-        leftEye.add(leftPupil);
-        rightEye.add(rightPupil);
-        this.eyes.add(leftEye);
-        this.eyes.add(rightEye);
+        const le = new THREE.Mesh(eyeGeo, eyeMat); le.position.set(-1.5, 2, 2.5);
+        const re = new THREE.Mesh(eyeGeo, eyeMat); re.position.set(1.5, 2, 2.5);
+        const lp = new THREE.Mesh(pupilGeo, pupilMat); lp.position.z = 1;
+        const rp = new THREE.Mesh(pupilGeo, pupilMat); rp.position.z = 1;
+        le.add(lp); re.add(rp);
+        this.eyes.add(le); this.eyes.add(re);
         this.mesh.add(this.eyes);
 
         this.resetPosition();
@@ -774,21 +725,21 @@ class Ghost extends Actor {
 
     resetPosition() {
         this.setMode('SCATTER');
-        this.dir = LEFT; // Start moving
-        if(this.type === 'BLINKY') this.setTile(13, 11); // Outside
-        else if(this.type === 'PINKY') this.setTile(13, 14); // Inside
+        this.dir = LEFT;
+        if(this.type === 'BLINKY') this.setTile(13, 11);
+        else if(this.type === 'PINKY') this.setTile(13, 14);
         else if(this.type === 'INKY') this.setTile(11, 14);
         else if(this.type === 'CLYDE') this.setTile(15, 14);
     }
 
-    setMode(mode) {
-        this.mode = mode;
-        if (mode === 'FRIGHTENED') {
-            this.mat.color.setHex(0x0000ff); // Blue
+    setMode(m) {
+        this.mode = m;
+        if (m === 'FRIGHTENED') {
+            this.mat.color.setHex(0x0000ff);
             this.speed = SPEED_GHOST_FRIGHT;
-        } else if (mode === 'EATEN') {
-            this.mat.visible = false; // Eyes only
-            this.speed = 100; // Fast return
+        } else if (m === 'EATEN') {
+            this.mat.visible = false;
+            this.speed = 120;
         } else {
             this.mat.visible = true;
             this.mat.color.setHex(this.baseColor);
@@ -797,103 +748,70 @@ class Ghost extends Actor {
     }
 
     getTarget() {
-        if (this.mode === 'EATEN') return { col: 13, row: 11 }; // Ghost house door
+        if (this.mode === 'EATEN') return { col: 13, row: 11 };
 
-        // 2-Player Logic: Target Closest Alive Player
-        const alivePlayers = this.game.players.filter(p => !p.dead);
-        if(alivePlayers.length === 0) return { col: this.tilePos.col, row: this.tilePos.row };
-
-        let targetPlayer = alivePlayers[0];
-        if (alivePlayers.length > 1) {
-            const d1 = Math.abs(this.tilePos.col - alivePlayers[0].tilePos.col) + Math.abs(this.tilePos.row - alivePlayers[0].tilePos.row);
-            const d2 = Math.abs(this.tilePos.col - alivePlayers[1].tilePos.col) + Math.abs(this.tilePos.row - alivePlayers[1].tilePos.row);
-            if (d2 < d1) targetPlayer = alivePlayers[1];
+        // Target Logic
+        const targets = this.game.players.filter(p => !p.dead);
+        if(!targets.length) return {col: this.tilePos.col, row: this.tilePos.row};
+        
+        // Pick closest player for basic targeting logic
+        let targetP = targets[0];
+        if (targets.length > 1) {
+            const d1 = Math.abs(this.tilePos.col - targets[0].tilePos.col) + Math.abs(this.tilePos.row - targets[0].tilePos.row);
+            const d2 = Math.abs(this.tilePos.col - targets[1].tilePos.col) + Math.abs(this.tilePos.row - targets[1].tilePos.row);
+            if (d2 < d1) targetP = targets[1];
         }
 
-        const px = targetPlayer.tilePos.col;
-        const py = targetPlayer.tilePos.row;
-        const pDir = targetPlayer.dir;
+        const tx = targetP.tilePos.col;
+        const ty = targetP.tilePos.row;
 
         if (this.mode === 'SCATTER') {
-            // Corners
-            if (this.type === 'BLINKY') return { col: MAZE_W-2, row: 0 };
-            if (this.type === 'PINKY') return { col: 1, row: 0 };
-            if (this.type === 'INKY') return { col: MAZE_W-1, row: MAZE_H-1 };
-            if (this.type === 'CLYDE') return { col: 0, row: MAZE_H-1 };
+             if (this.type === 'BLINKY') return { col: MAZE_W-2, row: 0 };
+             if (this.type === 'PINKY') return { col: 1, row: 0 };
+             if (this.type === 'INKY') return { col: MAZE_W-1, row: MAZE_H-1 };
+             if (this.type === 'CLYDE') return { col: 0, row: MAZE_H-1 };
         }
-
-        if (this.mode === 'CHASE') {
-            if (this.type === 'BLINKY') return { col: px, row: py };
-            if (this.type === 'PINKY') return { col: px + pDir.x * 4, row: py + pDir.z * 4 };
-            if (this.type === 'INKY') {
-                // Complex vector math simplified
-                const tx = px + pDir.x * 2;
-                const ty = py + pDir.z * 2;
-                // Vector from Blinky to pivot
-                return { col: tx, row: ty }; // Simplified
-            }
-            if (this.type === 'CLYDE') {
-                const dist = Math.sqrt(Math.pow(this.tilePos.col - px, 2) + Math.pow(this.tilePos.row - py, 2));
-                return (dist > 8) ? { col: px, row: py } : { col: 0, row: MAZE_H-1 };
-            }
-        }
-        
-        // Random wander for frightened is handled in movement decision
-        return { col: px, row: py };
+        return { col: tx, row: ty };
     }
 
     update(dt) {
         if (this.isAtCenter()) {
             this.snapToCenter();
-
-            if (this.mode === 'EATEN' && this.tilePos.col === 13 && this.tilePos.row === 11) {
-                this.setMode('CHASE'); // Respawned
+            
+            // Revive if returned
+            if (this.mode === 'EATEN' && Math.abs(this.tilePos.col - 13) < 2 && Math.abs(this.tilePos.row - 14) < 2) {
+                this.setMode('CHASE');
+                this.dir = UP; // Exit house
             }
 
-            // Decide next direction
             const target = this.getTarget();
-            const possible = [UP, DOWN, LEFT, RIGHT];
-            const validDirs = possible.filter(d => {
-                // Cannot reverse immediately (unless frightened logic triggered elsewhere)
-                if (d.x === -this.dir.x && d.z === -this.dir.z && this.mode !== 'FRIGHTENED') return false;
-                
-                const nextC = this.tilePos.col + d.x;
-                const nextR = this.tilePos.row + d.z;
-                // Specific Ghost House logic: only UP allowed if in center
-                if (this.game.grid[this.tilePos.row][this.tilePos.col] === 4) {
-                     // In house
-                     return this.game.isWalkable(nextC, nextR, true) || this.game.grid[nextR][nextC] === 5; 
-                }
-                
-                return this.game.isWalkable(nextC, nextR, this.mode !== 'EATEN');
+            const dirs = [UP, LEFT, DOWN, RIGHT];
+            
+            const valid = dirs.filter(d => {
+                // No immediate reverse unless frightened
+                if (this.mode !== 'FRIGHTENED' && d.x === -this.dir.x && d.z === -this.dir.z) return false;
+                return this.game.isWalkable(this.tilePos.col + d.x, this.tilePos.row + d.z, true);
             });
 
-            if (validDirs.length > 0) {
+            if (valid.length > 0) {
                 if (this.mode === 'FRIGHTENED') {
-                    // Random choice
-                    this.dir = validDirs[Math.floor(Math.random() * validDirs.length)];
+                    this.dir = valid[Math.floor(Math.random() * valid.length)];
                 } else {
-                    // Choose dir minimizing distance to target
-                    let bestDir = validDirs[0];
-                    let minDist = 999999;
-                    
-                    validDirs.forEach(d => {
-                        const nc = this.tilePos.col + d.x;
-                        const nr = this.tilePos.row + d.z;
-                        const dist = Math.pow(nc - target.col, 2) + Math.pow(nr - target.row, 2);
-                        if (dist < minDist) {
-                            minDist = dist;
-                            bestDir = d;
-                        }
+                    // Shortest path Euclidean
+                    let best = valid[0];
+                    let minD = 999999;
+                    valid.forEach(d => {
+                        const dist = Math.pow((this.tilePos.col + d.x) - target.col, 2) + Math.pow((this.tilePos.row + d.z) - target.row, 2);
+                        if (dist < minD) { minD = dist; best = d; }
                     });
-                    this.dir = bestDir;
+                    this.dir = best;
                 }
             } else {
-                // Dead end (shouldn't happen in standard maze)
-                this.dir = { x: -this.dir.x, z: -this.dir.z };
+                 // Dead end reverse
+                 this.dir = { x: -this.dir.x, z: -this.dir.z };
             }
 
-            // Rotate Eyes
+            // Eyes
             if(this.dir === UP) this.eyes.rotation.y = Math.PI;
             if(this.dir === DOWN) this.eyes.rotation.y = 0;
             if(this.dir === LEFT) this.eyes.rotation.y = -Math.PI/2;
@@ -902,22 +820,16 @@ class Ghost extends Actor {
 
         this.move(dt);
 
-        // Collision with Players
+        // Collision
         this.game.players.forEach(p => {
-            if(p.dead) return;
-            const dx = Math.abs(p.pixelPos.x - this.pixelPos.x);
-            const dz = Math.abs(p.pixelPos.z - this.pixelPos.z);
-            
-            if (dx < 5 && dz < 5) { // Collision Threshold
-                if (this.mode === 'FRIGHTENED') {
-                    this.game.handleGhostEat(this, p);
-                } else if (this.mode !== 'EATEN') {
-                    this.game.playerDied(p);
-                }
+            if (p.dead) return;
+            const dist = Math.abs(p.pixelPos.x - this.pixelPos.x) + Math.abs(p.pixelPos.z - this.pixelPos.z);
+            if (dist < 8) {
+                if (this.mode === 'FRIGHTENED') this.game.handleGhostEat(this, p);
+                else if (this.mode !== 'EATEN') this.game.playerDied(p);
             }
         });
     }
 }
 
-// Start
 new Game();
