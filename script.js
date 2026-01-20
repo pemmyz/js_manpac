@@ -143,8 +143,12 @@ class MazeGenerator {
         });
 
         // Ensure Spawn Points Clear
-        grid[23][13] = 0; grid[23][14] = 0; // Pacman
+        grid[23][13] = 0; grid[23][14] = 0; // Original Center Spawns (Safe keeping)
         grid[11][13] = 9; grid[11][14] = 9; // Ghost door exit area
+        
+        // ** NEW ** Clear Random Map Spawns (Bottom Corners)
+        grid[29][1] = 0;   // Bottom Left
+        grid[29][26] = 0;  // Bottom Right
 
         // Convert Grid back to Strings for consistency with original loader
         return grid.map(row => row.join(''));
@@ -824,7 +828,15 @@ class GhostMan extends Actor {
         this.dead = false;
         this.mesh.visible = true;
         this.body.rotation.z = 0;
-        this.setTile(this.id === 1 ? 13 : 14, 23);
+        
+        // Spawn Logic based on Map Type
+        if (this.game.mapStyle === 'RANDOM') {
+            // P1 Bottom Left, P2 Bottom Right
+            this.setTile(this.id === 1 ? 1 : 26, 29);
+        } else {
+            // Original Center
+            this.setTile(this.id === 1 ? 13 : 14, 23);
+        }
     }
 
     updateUI() {
