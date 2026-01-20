@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D GhostMan: 2-Player Arcade Edition</title>
+    <title>3D GhostMan: Arcade Edition</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <!-- Import Three.js via ES Modules -->
@@ -20,6 +20,10 @@
     <div id="game-container">
         <!-- HUD -->
         <div id="ui-layer">
+            
+            <!-- Gamepad Join Notifications -->
+            <div id="gamepad-notify"></div>
+
             <div class="score-board">
                 <div id="p1-score-box">
                     <div class="label">1UP</div>
@@ -39,14 +43,28 @@
             
             <div id="center-message">
                 <h1 id="main-title">GhostMan 3D</h1>
-                <p id="sub-message">PRESS SPACE TO START</p>
+                
+                <p id="sub-message">MAP: ORIGINAL (SPACE TO START)</p>
+                
                 <div class="controls-hint">
-                    <p>P1: ARROWS</p>
-                    <p>P2: WASD</p>
+                    <div class="hint-col">
+                        <span>P1</span>
+                        <small>ARROWS</small>
+                    </div>
+                    <div class="hint-col">
+                        <span>P2</span>
+                        <small>WASD</small>
+                    </div>
+                    <div class="hint-col">
+                        <span>GAMEPAD</span>
+                        <small>PRESS BUTTON TO JOIN</small>
+                    </div>
                 </div>
+
                 <div id="mode-select">
                     <button id="btn-1p" class="selected">1 PLAYER</button>
                     <button id="btn-2p">2 PLAYERS</button>
+                    <small style="margin-top:10px; font-size: 10px; color: #666;">ARROWS/WASD TO SELECT • SPACE TO START</small>
                 </div>
             </div>
         </div>

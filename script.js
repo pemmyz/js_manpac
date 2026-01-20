@@ -53,6 +53,105 @@ const RIGHT = { x: 1, z: 0 };
 const NONE = { x: 0, z: 0 };
 
 /**
+ * PROCEDURAL MAP GENERATOR
+ */
+class MazeGenerator {
+    static generate() {
+        // Init grid with Walls (1)
+        let grid = Array(MAZE_H).fill().map(() => Array(MAZE_W).fill(1));
+
+        // Helper to carve
+        const setCell = (x, y, val) => {
+            grid[y][x] = val;
+            // Horizontal Symmetry
+            grid[y][MAZE_W - 1 - x] = val;
+        };
+
+        // 1. Clear Ghost House (Center)
+        for(let y=12; y<=16; y++) {
+            for(let x=10; x<=17; x++) {
+                grid[y][x] = (y===12 && (x===13||x===14)) ? 5 : (y>12 && x>10 && x<17) ? 9 : 1;
+            }
+        }
+        // Force Tunnel
+        for(let x=0; x<MAZE_W; x++) grid[13][x] = (x < 5 || x > MAZE_W-6) ? 0 : grid[13][x];
+
+        // 2. Recursive Backtracker for paths (Half width)
+        const stack = [];
+        const startX = 1;
+        const startY = 1;
+        
+        const visited = new Set();
+        const visit = (x, y) => visited.add(`${x},${y}`);
+        const isVisited = (x, y) => visited.has(`${x},${y}`);
+
+        stack.push({x: startX, y: startY});
+        visit(startX, startY);
+        setCell(startX, startY, 0);
+
+        while(stack.length > 0) {
+            const current = stack[stack.length - 1];
+            const neighbors = [];
+
+            // Step 2 for thick walls
+            const dirs = [{dx:0, dy:-2}, {dx:0, dy:2}, {dx:-2, dy:0}, {dx:2, dy:0}];
+
+            dirs.forEach(d => {
+                const nx = current.x + d.dx;
+                const ny = current.y + d.dy;
+                // Bounds check (Half width for symmetry)
+                if(nx > 0 && nx < (MAZE_W/2) - 1 && ny > 0 && ny < MAZE_H - 1) {
+                    if(!isVisited(nx, ny)) {
+                        neighbors.push({x: nx, y: ny, dx: d.dx, dy: d.dy});
+                    }
+                }
+            });
+
+            if(neighbors.length > 0) {
+                const chosen = neighbors[Math.floor(Math.random() * neighbors.length)];
+                // Remove wall between
+                setCell(current.x + chosen.dx/2, current.y + chosen.dy/2, 0);
+                setCell(chosen.x, chosen.y, 0);
+                visit(chosen.x, chosen.y);
+                stack.push({x: chosen.x, y: chosen.y});
+            } else {
+                stack.pop();
+            }
+        }
+
+        // 3. Post-Process: Remove Random Walls to reduce dead-ends & connect regions
+        for(let y=2; y<MAZE_H-2; y++) {
+            for(let x=2; x<(MAZE_W/2)-1; x++) {
+                if(grid[y][x] === 1 && Math.random() > 0.85) {
+                    // Check if removing creates a valid loop (simplified)
+                    if(grid[y-1][x]!==1 && grid[y+1][x]!==1) setCell(x,y,0);
+                    if(grid[y][x-1]!==1 && grid[y][x+1]!==1) setCell(x,y,0);
+                }
+            }
+        }
+
+        // 4. Fill Pellets
+        for(let y=1; y<MAZE_H-1; y++) {
+            for(let x=1; x<MAZE_W-1; x++) {
+                if(grid[y][x] === 0) grid[y][x] = 2; // Pellet
+            }
+        }
+
+        // 5. Power Pellets (Corners)
+        [ {c:1, r:3}, {c:1, r:23}, {c:26, r:3}, {c:26, r:23} ].forEach(p => {
+             if(grid[p.r][p.c] !== 1) grid[p.r][p.c] = 3;
+        });
+
+        // Ensure Spawn Points Clear
+        grid[23][13] = 0; grid[23][14] = 0; // Pacman
+        grid[11][13] = 9; grid[11][14] = 9; // Ghost door exit area
+
+        // Convert Grid back to Strings for consistency with original loader
+        return grid.map(row => row.join(''));
+    }
+}
+
+/**
  * AUDIO SYNTHESIZER
  */
 class SoundManager {
@@ -128,6 +227,12 @@ class Game {
         this.audio = new SoundManager();
         
         this.twoPlayerMode = false;
+        this.mapStyle = 'ORIGINAL'; // 'ORIGINAL' or 'RANDOM'
+        
+        // Gamepad State
+        this.gamepadMap = {}; // index -> playerNum (1 or 2)
+        this.activeGamepads = new Set();
+        
         this.walls = [];
         this.pellets = [];
         this.actors = [];
@@ -156,7 +261,8 @@ class Game {
             p1Lives: document.getElementById('lives-p1'),
             p2Lives: document.getElementById('lives-p2'),
             btn1p: document.getElementById('btn-1p'),
-            btn2p: document.getElementById('btn-2p')
+            btn2p: document.getElementById('btn-2p'),
+            notify: document.getElementById('gamepad-notify')
         };
 
         this.initThree();
@@ -202,6 +308,40 @@ class Game {
         this.scene.add(floor);
     }
 
+    showNotification(msg) {
+        const div = document.createElement('div');
+        div.className = 'gp-toast';
+        div.innerText = msg;
+        this.ui.notify.appendChild(div);
+        setTimeout(() => div.remove(), 3000);
+    }
+
+    pollGamepads() {
+        const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+        for (let i = 0; i < gps.length; i++) {
+            const gp = gps[i];
+            if (gp) {
+                // Check if button pressed (A,B,X,Y usually 0,1,2,3)
+                const pressed = gp.buttons.some((b, idx) => idx < 4 && b.pressed);
+                
+                if (pressed && !this.activeGamepads.has(gp.index)) {
+                    // New controller joining
+                    if (!Object.values(this.gamepadMap).includes(1)) {
+                        this.gamepadMap[gp.index] = 1;
+                        this.activeGamepads.add(gp.index);
+                        this.showNotification(`GAMEPAD ${gp.index} JOINED AS PLAYER 1`);
+                    } else if (!Object.values(this.gamepadMap).includes(2)) {
+                        this.gamepadMap[gp.index] = 2;
+                        this.activeGamepads.add(gp.index);
+                        this.showNotification(`GAMEPAD ${gp.index} JOINED AS PLAYER 2`);
+                        this.twoPlayerMode = true;
+                        this.updateMenuUI();
+                    }
+                }
+            }
+        }
+    }
+
     buildMaze() {
         // Cleanup
         this.walls.forEach(w => this.scene.remove(w));
@@ -210,10 +350,16 @@ class Game {
         this.pellets = [];
         this.grid = [];
         
+        // SELECT MAP SOURCE
+        let layout = MAP_LAYOUT;
+        if (this.mapStyle === 'RANDOM') {
+            layout = MazeGenerator.generate();
+        }
+
         // Materials: Solid Blue with slight arcade glow
         const wallMat = new THREE.MeshLambertMaterial({ 
-            color: 0x2121de, 
-            emissive: 0x080890 
+            color: this.mapStyle === 'ORIGINAL' ? 0x2121de : 0xde2121, 
+            emissive: this.mapStyle === 'ORIGINAL' ? 0x080890 : 0x500808 
         });
 
         // Geometries
@@ -231,10 +377,10 @@ class Game {
         const offsetX = (MAZE_W * TILE_SIZE) / 2;
         const offsetZ = (MAZE_H * TILE_SIZE) / 2;
 
-        for (let row = 0; row < MAP_LAYOUT.length; row++) {
+        for (let row = 0; row < layout.length; row++) {
             const rowArr = [];
-            for (let col = 0; col < MAP_LAYOUT[row].length; col++) {
-                const char = MAP_LAYOUT[row][col];
+            for (let col = 0; col < layout[row].length; col++) {
+                const char = layout[row][col];
                 const val = parseInt(char);
                 rowArr.push(val);
 
@@ -248,14 +394,14 @@ class Game {
                     this.scene.add(joint);
                     this.walls.push(joint);
 
-                    if (col < MAP_LAYOUT[row].length - 1 && parseInt(MAP_LAYOUT[row][col + 1]) === 1) {
+                    if (col < layout[row].length - 1 && parseInt(layout[row][col + 1]) === 1) {
                         const conn = new THREE.Mesh(hConnGeo, wallMat);
                         conn.position.set(x + TILE_SIZE/2, 0, z); 
                         this.scene.add(conn);
                         this.walls.push(conn);
                     }
 
-                    if (row < MAP_LAYOUT.length - 1 && parseInt(MAP_LAYOUT[row + 1][col]) === 1) {
+                    if (row < layout.length - 1 && parseInt(layout[row + 1][col]) === 1) {
                         const conn = new THREE.Mesh(vConnGeo, wallMat);
                         conn.position.set(x, 0, z + TILE_SIZE/2);
                         this.scene.add(conn);
@@ -296,6 +442,11 @@ class Game {
                 if(e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'w' || e.key === 's') {
                     this.twoPlayerMode = !this.twoPlayerMode;
                     this.updateMenuUI();
+                }
+                // Map Select (Left/Right)
+                if(e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'a' || e.key === 'd') {
+                     this.mapStyle = (this.mapStyle === 'ORIGINAL') ? 'RANDOM' : 'ORIGINAL';
+                     this.ui.subText.innerText = `MAP: ${this.mapStyle} (SPACE TO START)`;
                 }
                 if(e.key === ' ' || e.key === 'Enter') this.startGame();
             }
@@ -347,15 +498,25 @@ class Game {
         this.state = 'MENU';
         this.ui.title.style.display = 'block';
         this.ui.mainText.innerText = "GhostMan 3D";
-        this.ui.subText.innerText = "PRESS SPACE TO START";
+        this.ui.subText.innerText = `MAP: ${this.mapStyle} (SPACE TO START)`;
         this.ui.subText.style.display = "block";
         document.getElementById('mode-select').style.display = "flex";
         this.level = 1;
+        
+        // Reset Controller Map so people can re-join
+        this.gamepadMap = {};
+        this.activeGamepads.clear();
+        this.twoPlayerMode = false;
+        this.updateMenuUI();
     }
 
     startGame() {
         this.audio.tryInit();
         this.ui.title.style.display = 'none';
+
+        // Rebuild for randomness if selected
+        if(this.mapStyle === 'RANDOM' || this.level === 1) this.buildMaze();
+
         this.createActors();
         this.resetLevel();
         this.audio.playIntro();
@@ -394,6 +555,9 @@ class Game {
 
     loop(time) {
         requestAnimationFrame(this.loop.bind(this));
+
+        // POLL CONTROLLERS
+        if(this.state === 'MENU') this.pollGamepads();
         
         // Convert to seconds
         const seconds = time * 0.001;
@@ -490,7 +654,8 @@ class Game {
         this.state = 'READY';
         setTimeout(() => {
             this.level++;
-            this.buildMaze();
+            // Re-generate if Random Mode
+            if(this.mapStyle === 'RANDOM') this.buildMaze();
             this.resetLevel();
         }, 3000);
     }
@@ -520,8 +685,9 @@ class Game {
         if (isGhost) {
             if (val === 5) return true; 
             if (val === 4) return true; 
+            if (val === 9) return true; // Inside ghost house
         } else {
-            if (val === 4 || val === 5) return false;
+            if (val === 4 || val === 5 || val === 9) return false;
         }
         
         return true;
@@ -626,7 +792,7 @@ class Actor {
 }
 
 /**
- * manpac
+ * GHOSTMAN
  */
 class GhostMan extends Actor {
     constructor(game, id, color) {
@@ -690,6 +856,8 @@ class GhostMan extends Actor {
         // Input
         let input = NONE;
         const k = this.game.keys;
+        
+        // 1. KEYBOARD
         if (this.id === 1) {
             if (k['ArrowUp']) input = UP;
             else if (k['ArrowDown']) input = DOWN;
@@ -701,6 +869,27 @@ class GhostMan extends Actor {
             else if (k['a']) input = LEFT;
             else if (k['d']) input = RIGHT;
         }
+
+        // 2. GAMEPAD OVERRIDE
+        const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+        // Find if any gamepad is assigned to this Player ID
+        const gpIndex = Object.keys(this.gamepadMap || this.game.gamepadMap).find(key => this.game.gamepadMap[key] === this.id);
+        
+        if (gpIndex !== undefined && gps[gpIndex]) {
+            const gp = gps[gpIndex];
+            // Axes (Stick)
+            if (gp.axes[1] < -0.5) input = UP;
+            else if (gp.axes[1] > 0.5) input = DOWN;
+            else if (gp.axes[0] < -0.5) input = LEFT;
+            else if (gp.axes[0] > 0.5) input = RIGHT;
+
+            // D-Pad (Standard Mapping: 12=Up, 13=Down, 14=Left, 15=Right)
+            if (gp.buttons[12]?.pressed) input = UP;
+            if (gp.buttons[13]?.pressed) input = DOWN;
+            if (gp.buttons[14]?.pressed) input = LEFT;
+            if (gp.buttons[15]?.pressed) input = RIGHT;
+        }
+
         if (input !== NONE) this.nextDir = input;
 
         // Movement Step

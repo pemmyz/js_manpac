@@ -39,6 +39,41 @@ canvas {
     z-index: 10;
 }
 
+/* --- GAMEPAD NOTIFICATIONS --- */
+#gamepad-notify {
+    position: absolute;
+    top: 80px; /* Below scoreboard */
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+    width: 100%;
+    pointer-events: none;
+    z-index: 20;
+}
+
+.gp-toast {
+    background: rgba(0, 50, 0, 0.9);
+    border: 2px solid #00ff00;
+    color: #00ff00;
+    padding: 10px 20px;
+    font-size: 10px;
+    text-transform: uppercase;
+    border-radius: 4px;
+    box-shadow: 0 0 10px #00ff00;
+    animation: fadeUp 3s forwards;
+}
+
+@keyframes fadeUp {
+    0% { opacity: 0; transform: translateY(20px); }
+    10% { opacity: 1; transform: translateY(0); }
+    80% { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+/* --- SCOREBOARD --- */
 .score-board {
     display: flex;
     justify-content: space-between;
@@ -68,6 +103,7 @@ canvas {
     letter-spacing: 2px;
 }
 
+/* --- CENTER MENU --- */
 #center-message {
     position: absolute;
     top: 50%;
@@ -79,6 +115,7 @@ canvas {
     border: 4px double var(--neon-blue);
     pointer-events: auto;
     box-shadow: 0 0 20px var(--neon-blue);
+    min-width: 500px;
 }
 
 #main-title {
@@ -89,19 +126,32 @@ canvas {
 }
 
 #sub-message {
-    font-size: 18px;
+    font-size: 14px;
     color: #ffb8ae;
-    animation: blink 0.8s infinite;
+    margin-bottom: 20px;
+    line-height: 1.5;
+    animation: blink 1.2s infinite;
 }
 
 .controls-hint {
-    margin-top: 30px;
+    margin: 20px 0;
     font-size: 12px;
     color: #aaa;
     display: flex;
-    gap: 40px;
+    gap: 30px;
     justify-content: center;
+    border-top: 1px solid #333;
+    border-bottom: 1px solid #333;
+    padding: 15px 0;
 }
+
+.hint-col {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.hint-col span { color: #fff; }
+.hint-col small { color: #888; font-size: 8px; }
 
 #mode-select {
     margin-top: 20px;
@@ -120,18 +170,20 @@ button {
     cursor: pointer;
     padding: 10px;
     text-transform: uppercase;
+    transition: color 0.1s;
 }
 
 button.selected {
     color: var(--pac-yellow);
     text-shadow: 0 0 5px var(--pac-yellow);
+    transform: scale(1.1);
 }
 
-button.selected::before { content: "> "; }
-button.selected::after { content: " <"; }
+button.selected::before { content: "► "; }
+button.selected::after { content: " ◄"; }
 
 @keyframes blink {
     0% { opacity: 1; }
-    50% { opacity: 0; }
+    50% { opacity: 0.5; }
     100% { opacity: 1; }
 }
