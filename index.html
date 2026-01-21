@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D GhostMan: Arcade Edition</title>
+    <title>GhostMan 3D: Arcade Edition</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-    <!-- Import Three.js via ES Modules -->
+    
+    <!-- Import Three.js as a Module -->
     <script type="importmap">
         {
             "imports": {
@@ -18,12 +19,13 @@
 </head>
 <body>
     <div id="game-container">
-        <!-- HUD -->
+        <!-- HUD / UI Layer -->
         <div id="ui-layer">
             
-            <!-- Gamepad Join Notifications -->
+            <!-- Gamepad Connection Toasts -->
             <div id="gamepad-notify"></div>
 
+            <!-- Score HUD -->
             <div class="score-board">
                 <div id="p1-score-box">
                     <div class="label">1UP</div>
@@ -32,7 +34,7 @@
                 </div>
                 <div id="high-score-box">
                     <div class="label">HIGH SCORE</div>
-                    <div id="high-score">00</div>
+                    <div id="high-score">10000</div>
                 </div>
                 <div id="p2-score-box">
                     <div class="label">2UP</div>
@@ -41,36 +43,30 @@
                 </div>
             </div>
             
+            <!-- Main Menu / Message Center -->
             <div id="center-message">
                 <h1 id="main-title">GhostMan 3D</h1>
                 
                 <p id="sub-message">MAP: ORIGINAL (SPACE TO START)</p>
                 
-                <div class="controls-hint">
-                    <div class="hint-col">
-                        <span>P1</span>
-                        <small>ARROWS</small>
-                    </div>
-                    <div class="hint-col">
-                        <span>P2</span>
-                        <small>WASD</small>
-                    </div>
-                    <div class="hint-col">
-                        <span>GAMEPAD</span>
-                        <small>PRESS BUTTON TO JOIN</small>
-                    </div>
-                </div>
+                <!-- New Demo Countdown Element -->
+                <div id="demo-countdown" class="hidden">DEMO IN 4</div>
 
                 <div id="mode-select">
                     <button id="btn-1p" class="selected">1 PLAYER</button>
                     <button id="btn-2p">2 PLAYERS</button>
-                    <small style="margin-top:10px; font-size: 10px; color: #666;">ARROWS/WASD TO SELECT • SPACE TO START</small>
+                    <div class="controls-hint">
+                        <span>P1: ARROWS</span> • <span>P2: WASD</span> • <span>SPACE: START</span>
+                    </div>
                 </div>
             </div>
         </div>
         
+        <!-- 3D Rendering Canvas -->
         <canvas id="game-canvas"></canvas>
     </div>
+
+    <!-- Main Logic -->
     <script type="module" src="script.js"></script>
 </body>
 </html>

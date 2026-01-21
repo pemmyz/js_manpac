@@ -4,6 +4,7 @@
     --pac-pink: #FFB8FF; 
     --neon-blue: #2121de;
     --text-white: #dedede;
+    --danger-red: #ff0000;
 }
 
 body {
@@ -42,7 +43,7 @@ canvas {
 /* --- GAMEPAD NOTIFICATIONS --- */
 #gamepad-notify {
     position: absolute;
-    top: 80px; /* Below scoreboard */
+    top: 90px;
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -50,15 +51,13 @@ canvas {
     gap: 10px;
     align-items: center;
     width: 100%;
-    pointer-events: none;
-    z-index: 20;
 }
 
 .gp-toast {
     background: rgba(0, 50, 0, 0.9);
     border: 2px solid #00ff00;
     color: #00ff00;
-    padding: 10px 20px;
+    padding: 8px 15px;
     font-size: 10px;
     text-transform: uppercase;
     border-radius: 4px;
@@ -83,7 +82,7 @@ canvas {
 }
 
 .label {
-    font-size: 16px;
+    font-size: 14px;
     margin-bottom: 5px;
     color: #fff;
 }
@@ -94,6 +93,7 @@ canvas {
 
 #score-p1 { color: var(--pac-yellow); }
 #score-p2 { color: var(--pac-pink); }
+#high-score { color: #fff; }
 
 .lives {
     margin-top: 5px;
@@ -110,54 +110,46 @@ canvas {
     left: 50%;
     transform: translate(-50%, -50%);
     text-align: center;
-    background: rgba(0, 0, 0, 0.9);
+    background: rgba(0, 0, 0, 0.95);
     padding: 40px;
     border: 4px double var(--neon-blue);
     pointer-events: auto;
     box-shadow: 0 0 20px var(--neon-blue);
-    min-width: 500px;
+    min-width: 450px;
 }
 
 #main-title {
     color: var(--pac-yellow);
-    font-size: 40px;
+    font-size: 35px;
     margin-bottom: 20px;
     text-shadow: 4px 4px var(--neon-blue);
 }
 
 #sub-message {
-    font-size: 14px;
-    color: #ffb8ae;
-    margin-bottom: 20px;
-    line-height: 1.5;
-    animation: blink 1.2s infinite;
-}
-
-.controls-hint {
-    margin: 20px 0;
     font-size: 12px;
-    color: #aaa;
-    display: flex;
-    gap: 30px;
-    justify-content: center;
-    border-top: 1px solid #333;
-    border-bottom: 1px solid #333;
-    padding: 15px 0;
+    color: #ffb8ae;
+    margin-bottom: 25px;
+    line-height: 1.5;
+    animation: pulse 2s infinite;
 }
 
-.hint-col {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
+/* Demo Countdown Styling */
+#demo-countdown {
+    color: var(--danger-red);
+    font-size: 12px;
+    margin-bottom: 15px;
+    height: 15px; /* Prevent layout jump */
+    letter-spacing: 1px;
 }
-.hint-col span { color: #fff; }
-.hint-col small { color: #888; font-size: 8px; }
+
+#demo-countdown.hidden {
+    visibility: hidden;
+}
 
 #mode-select {
-    margin-top: 20px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
     align-items: center;
 }
 
@@ -166,11 +158,10 @@ button {
     border: none;
     font-family: 'Press Start 2P', cursive;
     color: #555;
-    font-size: 16px;
+    font-size: 14px;
     cursor: pointer;
-    padding: 10px;
     text-transform: uppercase;
-    transition: color 0.1s;
+    transition: 0.1s;
 }
 
 button.selected {
@@ -182,8 +173,17 @@ button.selected {
 button.selected::before { content: "► "; }
 button.selected::after { content: " ◄"; }
 
-@keyframes blink {
+.controls-hint {
+    margin-top: 20px;
+    font-size: 8px;
+    color: #666;
+    border-top: 1px solid #333;
+    padding-top: 10px;
+    width: 100%;
+}
+
+@keyframes pulse {
     0% { opacity: 1; }
-    50% { opacity: 0.5; }
+    50% { opacity: 0.6; }
     100% { opacity: 1; }
 }

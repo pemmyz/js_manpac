@@ -3,16 +3,19 @@ import * as THREE from 'three';
 /**
  * CONFIGURATION & CONSTANTS
  */
-const TILE_SIZE = 10;       // Grid spacing (Distance between dot centers)
-const WALL_HEIGHT = 2.5;    // Visual height of the walls (Y-axis)
-const WALL_THICKNESS = 4;   // THICKNESS (Z for Horiz, X for Vert). 
+const TILE_SIZE = 10;
+const WALL_HEIGHT = 2.5;
+const WALL_THICKNESS = 4;
 
 const MAZE_W = 28;
 const MAZE_H = 31;
+
+// Speeds
 const SPEED_NORMAL = 50; 
 const SPEED_FRIGHT = 35;
 const SPEED_GHOST_NORMAL = 45;
 const SPEED_GHOST_FRIGHT = 25;
+const SPEED_DEMO_BOT = 55; // Slightly faster to make the demo look skilled
 
 // KEY: 1 = Wall, 0/9 = Walkable, 2/3 = Pellets, 5 = Door
 const MAP_LAYOUT = [
@@ -57,30 +60,23 @@ const NONE = { x: 0, z: 0 };
  */
 class MazeGenerator {
     static generate() {
-        // Init grid with Walls (1)
         let grid = Array(MAZE_H).fill().map(() => Array(MAZE_W).fill(1));
 
-        // Helper to carve
         const setCell = (x, y, val) => {
             grid[y][x] = val;
-            // Horizontal Symmetry
             grid[y][MAZE_W - 1 - x] = val;
         };
 
-        // 1. Clear Ghost House (Center)
         for(let y=12; y<=16; y++) {
             for(let x=10; x<=17; x++) {
                 grid[y][x] = (y===12 && (x===13||x===14)) ? 5 : (y>12 && x>10 && x<17) ? 9 : 1;
             }
         }
-        // Force Tunnel
         for(let x=0; x<MAZE_W; x++) grid[13][x] = (x < 5 || x > MAZE_W-6) ? 0 : grid[13][x];
 
-        // 2. Recursive Backtracker for paths (Half width)
         const stack = [];
         const startX = 1;
         const startY = 1;
-        
         const visited = new Set();
         const visit = (x, y) => visited.add(`${x},${y}`);
         const isVisited = (x, y) => visited.has(`${x},${y}`);
@@ -92,24 +88,16 @@ class MazeGenerator {
         while(stack.length > 0) {
             const current = stack[stack.length - 1];
             const neighbors = [];
-
-            // Step 2 for thick walls
-            const dirs = [{dx:0, dy:-2}, {dx:0, dy:2}, {dx:-2, dy:0}, {dx:2, dy:0}];
-
-            dirs.forEach(d => {
+            [{dx:0, dy:-2}, {dx:0, dy:2}, {dx:-2, dy:0}, {dx:2, dy:0}].forEach(d => {
                 const nx = current.x + d.dx;
                 const ny = current.y + d.dy;
-                // Bounds check (Half width for symmetry)
                 if(nx > 0 && nx < (MAZE_W/2) - 1 && ny > 0 && ny < MAZE_H - 1) {
-                    if(!isVisited(nx, ny)) {
-                        neighbors.push({x: nx, y: ny, dx: d.dx, dy: d.dy});
-                    }
+                    if(!isVisited(nx, ny)) neighbors.push({x: nx, y: ny, dx: d.dx, dy: d.dy});
                 }
             });
 
             if(neighbors.length > 0) {
                 const chosen = neighbors[Math.floor(Math.random() * neighbors.length)];
-                // Remove wall between
                 setCell(current.x + chosen.dx/2, current.y + chosen.dy/2, 0);
                 setCell(chosen.x, chosen.y, 0);
                 visit(chosen.x, chosen.y);
@@ -119,38 +107,29 @@ class MazeGenerator {
             }
         }
 
-        // 3. Post-Process: Remove Random Walls to reduce dead-ends & connect regions
         for(let y=2; y<MAZE_H-2; y++) {
             for(let x=2; x<(MAZE_W/2)-1; x++) {
                 if(grid[y][x] === 1 && Math.random() > 0.85) {
-                    // Check if removing creates a valid loop (simplified)
                     if(grid[y-1][x]!==1 && grid[y+1][x]!==1) setCell(x,y,0);
                     if(grid[y][x-1]!==1 && grid[y][x+1]!==1) setCell(x,y,0);
                 }
             }
         }
 
-        // 4. Fill Pellets
         for(let y=1; y<MAZE_H-1; y++) {
             for(let x=1; x<MAZE_W-1; x++) {
-                if(grid[y][x] === 0) grid[y][x] = 2; // Pellet
+                if(grid[y][x] === 0) grid[y][x] = 2;
             }
         }
 
-        // 5. Power Pellets (Corners)
         [ {c:1, r:3}, {c:1, r:23}, {c:26, r:3}, {c:26, r:23} ].forEach(p => {
              if(grid[p.r][p.c] !== 1) grid[p.r][p.c] = 3;
         });
 
-        // Ensure Spawn Points Clear
-        grid[23][13] = 0; grid[23][14] = 0; // Original Center Spawns (Safe keeping)
-        grid[11][13] = 9; grid[11][14] = 9; // Ghost door exit area
-        
-        // ** NEW ** Clear Random Map Spawns (Bottom Corners)
-        grid[29][1] = 0;   // Bottom Left
-        grid[29][26] = 0;  // Bottom Right
+        grid[23][13] = 0; grid[23][14] = 0;
+        grid[11][13] = 9; grid[11][14] = 9;
+        grid[29][1] = 0; grid[29][26] = 0;
 
-        // Convert Grid back to Strings for consistency with original loader
         return grid.map(row => row.join(''));
     }
 }
@@ -231,10 +210,10 @@ class Game {
         this.audio = new SoundManager();
         
         this.twoPlayerMode = false;
-        this.mapStyle = 'ORIGINAL'; // 'ORIGINAL' or 'RANDOM'
+        this.mapStyle = 'ORIGINAL';
+        this.isDemo = false; // Flag for Demo Mode
         
-        // Gamepad State
-        this.gamepadMap = {}; // index -> playerNum (1 or 2)
+        this.gamepadMap = {};
         this.activeGamepads = new Set();
         
         this.walls = [];
@@ -251,15 +230,19 @@ class Game {
         this.frightenedTime = 0;
         this.ghostCombo = 0;
 
-        // Deterministic Loop Vars
+        // Auto-Demo Logic
+        this.lastInputTime = Date.now();
+        this.demoCountdown = 4;
+        
         this.lastFrameTime = 0;
         this.accumulator = 0;
-        this.fixedStep = 1 / 60; // 60hz Physics
+        this.fixedStep = 1 / 60;
 
         this.ui = {
             title: document.getElementById('center-message'),
             mainText: document.getElementById('main-title'),
             subText: document.getElementById('sub-message'),
+            demoText: document.getElementById('demo-countdown'),
             p1Score: document.getElementById('score-p1'),
             p2Score: document.getElementById('score-p2'),
             p1Lives: document.getElementById('lives-p1'),
@@ -278,14 +261,13 @@ class Game {
 
     initThree() {
         const aspect = window.innerWidth / window.innerHeight;
-        const frustumSize = 350; // Zoom level
+        const frustumSize = 350;
         this.camera = new THREE.OrthographicCamera(
             frustumSize * aspect / -2, frustumSize * aspect / 2,
             frustumSize / 2, frustumSize / -2,
             1, 1000
         );
         
-        // Isometric-ish view
         this.camera.position.set(0, 200, 150); 
         this.camera.lookAt(0, 0, 15);
 
@@ -303,7 +285,6 @@ class Game {
         dirLight.position.set(50, 100, 50);
         this.scene.add(dirLight);
 
-        // Floor
         const floorGeo = new THREE.PlaneGeometry(MAZE_W * TILE_SIZE + 20, MAZE_H * TILE_SIZE + 20);
         const floorMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
         const floor = new THREE.Mesh(floorGeo, floorMat);
@@ -320,57 +301,70 @@ class Game {
         setTimeout(() => div.remove(), 3000);
     }
 
+    // Called on any user interaction
+    resetIdleTimer() {
+        this.lastInputTime = Date.now();
+        this.ui.demoText.classList.add('hidden');
+        
+        // If in Demo, Interrupt!
+        if (this.state === 'DEMO') {
+            this.resetGame();
+        }
+    }
+
     pollGamepads() {
         const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+        let anyPressed = false;
+
         for (let i = 0; i < gps.length; i++) {
             const gp = gps[i];
             if (gp) {
-                // Check if button pressed (A,B,X,Y usually 0,1,2,3)
                 const pressed = gp.buttons.some((b, idx) => idx < 4 && b.pressed);
-                
-                if (pressed && !this.activeGamepads.has(gp.index)) {
-                    // New controller joining
-                    if (!Object.values(this.gamepadMap).includes(1)) {
-                        this.gamepadMap[gp.index] = 1;
-                        this.activeGamepads.add(gp.index);
-                        this.showNotification(`GAMEPAD ${gp.index} JOINED AS PLAYER 1`);
-                    } else if (!Object.values(this.gamepadMap).includes(2)) {
-                        this.gamepadMap[gp.index] = 2;
-                        this.activeGamepads.add(gp.index);
-                        this.showNotification(`GAMEPAD ${gp.index} JOINED AS PLAYER 2`);
-                        this.twoPlayerMode = true;
-                        this.updateMenuUI();
+                if (pressed) {
+                    anyPressed = true;
+                    if (!this.activeGamepads.has(gp.index)) {
+                        if (!Object.values(this.gamepadMap).includes(1)) {
+                            this.gamepadMap[gp.index] = 1;
+                            this.activeGamepads.add(gp.index);
+                            this.showNotification(`GAMEPAD ${gp.index} JOINED AS P1`);
+                        } else if (!Object.values(this.gamepadMap).includes(2)) {
+                            this.gamepadMap[gp.index] = 2;
+                            this.activeGamepads.add(gp.index);
+                            this.showNotification(`GAMEPAD ${gp.index} JOINED AS P2`);
+                            this.twoPlayerMode = true;
+                            this.updateMenuUI();
+                        }
+                    }
+                    // Start Game via Gamepad
+                    if (this.state === 'MENU' && pressed) {
+                        this.resetIdleTimer();
+                        this.startGame(false);
                     }
                 }
             }
         }
+        
+        if (anyPressed) this.resetIdleTimer();
     }
 
     buildMaze() {
-        // Cleanup
         this.walls.forEach(w => this.scene.remove(w));
         this.pellets.forEach(p => this.scene.remove(p.mesh));
         this.walls = [];
         this.pellets = [];
         this.grid = [];
         
-        // SELECT MAP SOURCE
         let layout = MAP_LAYOUT;
         if (this.mapStyle === 'RANDOM') {
             layout = MazeGenerator.generate();
         }
 
-        // Materials: Solid Blue with slight arcade glow
         const wallMat = new THREE.MeshLambertMaterial({ 
             color: this.mapStyle === 'ORIGINAL' ? 0x2121de : 0xde2121, 
             emissive: this.mapStyle === 'ORIGINAL' ? 0x080890 : 0x500808 
         });
 
-        // Geometries
-        // 1. Joint: Cylinder at the center of every wall tile
         const jointGeo = new THREE.CylinderGeometry(WALL_THICKNESS/2, WALL_THICKNESS/2, WALL_HEIGHT, 16);
-        
-        // 2. Connectors: 
         const hConnGeo = new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, WALL_THICKNESS); 
         const vConnGeo = new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, TILE_SIZE); 
 
@@ -392,7 +386,6 @@ class Game {
                 const z = row * TILE_SIZE - offsetZ + (TILE_SIZE/2);
 
                 if (val === 1) {
-                    // WALL GENERATION
                     const joint = new THREE.Mesh(jointGeo, wallMat);
                     joint.position.set(x, 0, z);
                     this.scene.add(joint);
@@ -404,7 +397,6 @@ class Game {
                         this.scene.add(conn);
                         this.walls.push(conn);
                     }
-
                     if (row < layout.length - 1 && parseInt(layout[row + 1][col]) === 1) {
                         const conn = new THREE.Mesh(vConnGeo, wallMat);
                         conn.position.set(x, 0, z + TILE_SIZE/2);
@@ -439,6 +431,8 @@ class Game {
     setupInput() {
         this.keys = {};
         window.addEventListener('keydown', (e) => {
+            this.resetIdleTimer(); // Reset idle on any key
+            
             if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
             this.keys[e.key] = true;
 
@@ -447,12 +441,11 @@ class Game {
                     this.twoPlayerMode = !this.twoPlayerMode;
                     this.updateMenuUI();
                 }
-                // Map Select (Left/Right)
                 if(e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'a' || e.key === 'd') {
                      this.mapStyle = (this.mapStyle === 'ORIGINAL') ? 'RANDOM' : 'ORIGINAL';
                      this.ui.subText.innerText = `MAP: ${this.mapStyle} (SPACE TO START)`;
                 }
-                if(e.key === ' ' || e.key === 'Enter') this.startGame();
+                if(e.key === ' ' || e.key === 'Enter') this.startGame(false);
             }
             if(this.state === 'GAMEOVER' && (e.key === ' ' || e.key === 'Enter')) {
                 this.resetGame();
@@ -471,18 +464,36 @@ class Game {
         }
     }
 
+    checkDemoTrigger() {
+        if(this.state !== 'MENU') return;
+        
+        const idleTime = (Date.now() - this.lastInputTime) / 1000;
+        const timeLeft = Math.ceil(4.0 - idleTime);
+
+        if (timeLeft <= 3 && timeLeft > 0) {
+            this.ui.demoText.classList.remove('hidden');
+            this.ui.demoText.innerText = `DEMO IN ${timeLeft}`;
+        } else if (timeLeft > 3) {
+            this.ui.demoText.classList.add('hidden');
+        }
+
+        if (idleTime >= 4.0) {
+            this.startGame(true); // Start Demo
+        }
+    }
+
     createActors() {
         this.actors.forEach(a => this.scene.remove(a.mesh));
         this.players = [];
         this.ghosts = [];
         this.actors = [];
 
-        // P1 (Yellow)
+        // P1
         const p1 = new GhostMan(this, 1, 0xffff00);
         this.players.push(p1);
 
-        // P2 (Ms GhostMan Pink)
-        if (this.twoPlayerMode) {
+        // P2 (Only in real game if selected)
+        if (this.twoPlayerMode && !this.isDemo) {
             const p2 = new GhostMan(this, 2, 0xffb8ff); 
             this.players.push(p2);
         }
@@ -500,72 +511,100 @@ class Game {
 
     resetGame() {
         this.state = 'MENU';
+        this.isDemo = false;
         this.ui.title.style.display = 'block';
         this.ui.mainText.innerText = "GhostMan 3D";
         this.ui.subText.innerText = `MAP: ${this.mapStyle} (SPACE TO START)`;
         this.ui.subText.style.display = "block";
+        this.ui.demoText.classList.add('hidden');
         document.getElementById('mode-select').style.display = "flex";
         this.level = 1;
+        this.lastInputTime = Date.now();
         
-        // Reset Controller Map so people can re-join
         this.gamepadMap = {};
         this.activeGamepads.clear();
         this.twoPlayerMode = false;
         this.updateMenuUI();
     }
 
-    startGame() {
-        this.audio.tryInit();
+    startGame(isDemo = false) {
+        this.isDemo = isDemo;
+        this.state = isDemo ? 'DEMO' : 'PLAYING'; // Skip ready phase for demo usually? Or keep it.
+        
+        if(!isDemo) this.audio.tryInit();
         this.ui.title.style.display = 'none';
 
-        // Rebuild for randomness if selected
         if(this.mapStyle === 'RANDOM' || this.level === 1) this.buildMaze();
 
         this.createActors();
         this.resetLevel();
-        this.audio.playIntro();
+        
+        if(!isDemo) this.audio.playIntro();
         
         this.players.forEach(p => {
             p.score = 0;
             p.lives = 3;
             p.updateUI();
+            if(isDemo) p.speed = SPEED_DEMO_BOT; // Set Bot Speed
         });
 
-        setTimeout(() => { this.state = 'PLAYING'; }, 4000);
+        if (isDemo) {
+            this.ui.mainText.innerText = "DEMO MODE";
+            this.ui.subText.innerText = "PRESS ANY KEY TO START";
+            this.ui.title.style.display = 'block';
+            this.ui.title.style.background = 'transparent';
+            this.ui.title.style.border = 'none';
+            this.ui.title.style.boxShadow = 'none';
+            setTimeout(() => { 
+                if(this.state === 'DEMO') this.ui.title.style.display = 'none'; 
+            }, 2000);
+        } else {
+            setTimeout(() => { this.state = 'PLAYING'; }, 4000);
+        }
     }
 
     resetLevel() {
         this.players.forEach(p => p.resetPosition());
         this.ghosts.forEach(g => g.resetPosition());
         
-        this.state = 'READY';
-        this.ui.title.style.display = 'block';
-        this.ui.title.style.background = 'transparent';
-        this.ui.title.style.border = 'none';
-        this.ui.title.style.boxShadow = 'none';
-        this.ui.mainText.innerText = "READY!";
-        this.ui.subText.style.display = 'none';
+        if (!this.isDemo) {
+            this.state = 'READY';
+            this.ui.title.style.display = 'block';
+            this.ui.title.style.background = 'transparent';
+            this.ui.title.style.border = 'none';
+            this.ui.title.style.boxShadow = 'none';
+            this.ui.mainText.innerText = "READY!";
+            this.ui.subText.style.display = 'none';
+        } else {
+            this.state = 'DEMO';
+        }
+        
         document.getElementById('mode-select').style.display = "none";
 
-        setTimeout(() => {
-            if(this.state !== 'GAMEOVER') {
-                this.ui.title.style.display = 'none';
-                this.ui.title.style.background = 'rgba(0,0,0,0.9)';
-                this.ui.title.style.border = '4px double var(--neon-blue)';
-                this.state = 'PLAYING';
-            }
-        }, 2000);
+        if (!this.isDemo) {
+            setTimeout(() => {
+                if(this.state !== 'GAMEOVER') {
+                    this.ui.title.style.display = 'none';
+                    this.ui.title.style.background = 'rgba(0,0,0,0.9)';
+                    this.ui.title.style.border = '4px double var(--neon-blue)';
+                    this.state = 'PLAYING';
+                }
+            }, 2000);
+        }
     }
 
     loop(time) {
         requestAnimationFrame(this.loop.bind(this));
 
-        // POLL CONTROLLERS
-        if(this.state === 'MENU') this.pollGamepads();
+        if(this.state === 'MENU') {
+            this.pollGamepads();
+            this.checkDemoTrigger();
+        } else if (this.state === 'DEMO') {
+            // Also poll gamepads in Demo to allow interruption
+            this.pollGamepads();
+        }
         
-        // Convert to seconds
         const seconds = time * 0.001;
-
         if (this.lastFrameTime === 0) {
             this.lastFrameTime = seconds;
             return;
@@ -573,13 +612,10 @@ class Game {
 
         let frameTime = seconds - this.lastFrameTime;
         this.lastFrameTime = seconds;
-
-        // Cap frame time to prevent spirals
         if (frameTime > 0.25) frameTime = 0.25;
 
         this.accumulator += frameTime;
 
-        // Fixed Timestep Update
         while (this.accumulator >= this.fixedStep) {
             this.updatePhysics(this.fixedStep);
             this.accumulator -= this.fixedStep;
@@ -589,7 +625,7 @@ class Game {
     }
 
     updatePhysics(dt) {
-        if (this.state === 'PLAYING') {
+        if (this.state === 'PLAYING' || this.state === 'DEMO') {
             if (this.frightenedTime > 0) {
                 this.frightenedTime -= dt;
                 if (this.frightenedTime <= 0) {
@@ -606,11 +642,20 @@ class Game {
                 }
             }
 
-            this.players.forEach(p => { if(!p.dead) p.update(dt); });
+            // In DEMO, handle Player AI
+            this.players.forEach(p => { 
+                if(!p.dead) {
+                    if (this.state === 'DEMO') p.updateAI();
+                    p.update(dt); 
+                }
+            });
             this.ghosts.forEach(g => g.update(dt));
 
             if(this.pellets.filter(p => p.active).length === 0) this.levelComplete();
-            if(this.players.filter(p => p.lives > 0).length === 0) this.gameOver();
+            if(this.players.filter(p => p.lives > 0).length === 0) {
+                 if(this.state === 'DEMO') this.resetGame();
+                 else this.gameOver();
+            }
         }
     }
 
@@ -621,7 +666,6 @@ class Game {
         this.ghostCombo = 0;
         this.ghosts.forEach(g => {
             g.setMode('FRIGHTENED');
-            // Reverse
             if(g.mode !== 'EATEN') g.dir = { x: -g.dir.x, z: -g.dir.z };
         });
     }
@@ -641,24 +685,32 @@ class Game {
         this.audio.playDeath();
 
         if (this.players.every(p => p.dead || p.lives <= 0)) {
-            this.state = 'DYING';
-            setTimeout(() => {
-                const anyLives = this.players.some(p => p.lives > 0);
-                if (anyLives) {
-                    this.players.forEach(p => { if(p.lives > 0) { p.dead = false; p.mesh.visible = true; }});
-                    this.resetLevel();
-                } else {
-                    this.gameOver();
-                }
-            }, 2000);
+            if(this.state === 'DEMO') {
+                setTimeout(() => this.resetGame(), 1000);
+            } else {
+                this.state = 'DYING';
+                setTimeout(() => {
+                    const anyLives = this.players.some(p => p.lives > 0);
+                    if (anyLives) {
+                        this.players.forEach(p => { if(p.lives > 0) { p.dead = false; p.mesh.visible = true; }});
+                        this.resetLevel();
+                    } else {
+                        this.gameOver();
+                    }
+                }, 2000);
+            }
         }
     }
 
     levelComplete() {
+        // In Demo, just restart
+        if(this.state === 'DEMO') {
+             this.resetGame();
+             return;
+        }
         this.state = 'READY';
         setTimeout(() => {
             this.level++;
-            // Re-generate if Random Mode
             if(this.mapStyle === 'RANDOM') this.buildMaze();
             this.resetLevel();
         }, 3000);
@@ -674,30 +726,20 @@ class Game {
     }
 
     isWalkable(c, r, isGhost = false) {
-        // Strict Bounds Check (except tunnel row 13)
         if (r < 0 || r >= MAZE_H || c < 0 || c >= MAZE_W) {
-            if (r === 13) return true; // Tunnel
+            if (r === 13) return true; 
             return false;
         }
-        
         const val = this.grid[r][c];
-        
-        // 1 is Wall
         if (val === 1) return false;
-        
-        // Ghost specific logic
         if (isGhost) {
-            if (val === 5) return true; 
-            if (val === 4) return true; 
-            if (val === 9) return true; // Inside ghost house
+            if (val === 5 || val === 4 || val === 9) return true; 
         } else {
             if (val === 4 || val === 5 || val === 9) return false;
         }
-        
         return true;
     }
 
-    // Helper: Get pixel coord for a grid coord
     getPixelForTile(col, row) {
         const offsetX = (MAZE_W * TILE_SIZE) / 2;
         const offsetZ = (MAZE_H * TILE_SIZE) / 2;
@@ -709,7 +751,7 @@ class Game {
 }
 
 /**
- * BASE ACTOR - ROBUST MOVEMENT
+ * BASE ACTOR
  */
 class Actor {
     constructor(game) {
@@ -731,21 +773,17 @@ class Actor {
         this.mesh.position.set(this.pixelPos.x, 0, this.pixelPos.z);
     }
 
-    // Returns TRUE if we hit/crossed the center of a tile this frame
     drive(dt) {
-        // 1. Calculate ideal center of current tile
         const center = this.game.getPixelForTile(this.tilePos.col, this.tilePos.row);
         
         if (this.dir.x !== 0) this.pixelPos.z = center.z;
         if (this.dir.z !== 0) this.pixelPos.x = center.x;
 
-        // 2. Are we currently at center?
         const distToCenter = Math.sqrt(
             Math.pow(this.pixelPos.x - center.x, 2) + 
             Math.pow(this.pixelPos.z - center.z, 2)
         );
 
-        // 3. Movement Amount
         let moveAmt = this.speed * dt;
         let reachedCenter = false;
 
@@ -758,28 +796,23 @@ class Actor {
             const dot = toCenterX * this.dir.x + toCenterZ * this.dir.z;
 
             if (dot > 0) {
-                // Moving TOWARDS center
                 if (moveAmt >= distToCenter) {
-                    // We reach center this frame
                     this.pixelPos.x = center.x;
                     this.pixelPos.z = center.z;
-                    moveAmt -= distToCenter; // Remaining movement
+                    moveAmt -= distToCenter;
                     reachedCenter = true;
                 } else {
-                    // Just move closer
                     this.pixelPos.x += this.dir.x * moveAmt;
                     this.pixelPos.z += this.dir.z * moveAmt;
                     moveAmt = 0;
                 }
             } else {
-                // Moving AWAY from center
                 this.pixelPos.x += this.dir.x * moveAmt;
                 this.pixelPos.z += this.dir.z * moveAmt;
                 moveAmt = 0;
             }
         }
 
-        // Tunnel Wrap Check
         const limit = (MAZE_W * TILE_SIZE) / 2 + TILE_SIZE;
         if (this.pixelPos.x > limit) { this.pixelPos.x = -limit + 5; this.tilePos.col = 0; }
         else if (this.pixelPos.x < -limit) { this.pixelPos.x = limit - 5; this.tilePos.col = MAZE_W - 1; }
@@ -790,7 +823,6 @@ class Actor {
         this.tilePos.row = Math.floor((this.pixelPos.z + offsetZ) / TILE_SIZE);
 
         this.mesh.position.set(this.pixelPos.x, 0, this.pixelPos.z);
-        
         return { reachedCenter, remainingDt: moveAmt > 0 ? moveAmt / this.speed : 0 };
     }
 }
@@ -828,13 +860,9 @@ class GhostMan extends Actor {
         this.dead = false;
         this.mesh.visible = true;
         this.body.rotation.z = 0;
-        
-        // Spawn Logic based on Map Type
         if (this.game.mapStyle === 'RANDOM') {
-            // P1 Bottom Left, P2 Bottom Right
             this.setTile(this.id === 1 ? 1 : 26, 29);
         } else {
-            // Original Center
             this.setTile(this.id === 1 ? 13 : 14, 23);
         }
     }
@@ -856,68 +884,141 @@ class GhostMan extends Actor {
         if(this.score > (parseInt(hs.innerText)||0)) hs.innerText = this.score;
     }
 
+    // --- AI BOT LOGIC FOR DEMO ---
+    updateAI() {
+        // Only think if we are at the center of a tile to make clean turns
+        if (this.dir !== NONE && this.game.getPixelForTile(this.tilePos.col, this.tilePos.row).x !== this.pixelPos.x) return;
+        
+        // 1. Safety Check: Where are the ghosts?
+        const ghosts = this.game.ghosts.filter(g => g.mode !== 'EATEN');
+        const dangerous = ghosts.filter(g => g.mode !== 'FRIGHTENED');
+        const huntable = ghosts.filter(g => g.mode === 'FRIGHTENED');
+
+        const moves = [UP, DOWN, LEFT, RIGHT];
+        const validMoves = moves.filter(d => this.game.isWalkable(this.tilePos.col + d.x, this.tilePos.row + d.z));
+
+        // Filter out suicide moves (immediate collision)
+        const safeMoves = validMoves.filter(d => {
+            const nx = this.tilePos.col + d.x;
+            const ny = this.tilePos.row + d.z;
+            return !dangerous.some(g => Math.abs(g.tilePos.col - nx) + Math.abs(g.tilePos.row - ny) < 2);
+        });
+
+        const choices = safeMoves.length > 0 ? safeMoves : validMoves; // Panic if no safe moves
+
+        if (choices.length === 0) return;
+
+        // BFS Helper
+        const findPath = (goals) => {
+            const queue = [{ c: this.tilePos.col, r: this.tilePos.row, firstMove: null }];
+            const visited = new Set();
+            visited.add(`${this.tilePos.col},${this.tilePos.row}`);
+
+            while(queue.length > 0) {
+                const cur = queue.shift();
+                
+                // Check if goal
+                if (goals.some(g => g.c === cur.c && g.r === cur.r)) {
+                    return cur.firstMove;
+                }
+
+                for (let m of moves) {
+                    const nc = cur.c + m.x;
+                    const nr = cur.r + m.z;
+                    if (this.game.isWalkable(nc, nr) && !visited.has(`${nc},${nr}`)) {
+                        visited.add(`${nc},${nr}`);
+                        queue.push({ c: nc, r: nr, firstMove: cur.firstMove || m });
+                    }
+                }
+            }
+            return null;
+        };
+
+        let targetMove = null;
+
+        // Priority 1: Hunt Blue Ghosts
+        if (huntable.length > 0) {
+            const targets = huntable.map(g => ({ c: g.tilePos.col, r: g.tilePos.row }));
+            targetMove = findPath(targets);
+        }
+
+        // Priority 2: Get Pellets
+        if (!targetMove) {
+            // Optimization: Only search for pellets within radius or fallback to random
+            const pellets = this.game.pellets.filter(p => p.active);
+            if(pellets.length > 0) {
+                // Find nearest logic is implicitly handled by BFS layer order
+                // Just map pellets to simple coord objects
+                // To save perf, we might limit this, but map is small enough
+                const pTargets = pellets.map(p => ({c: p.x, r: p.z}));
+                targetMove = findPath(pTargets);
+            }
+        }
+
+        // Execution
+        if (targetMove && choices.includes(targetMove)) {
+            this.nextDir = targetMove;
+        } else {
+            // Random valid move if no path or path blocked
+            this.nextDir = choices[Math.floor(Math.random() * choices.length)];
+        }
+    }
+
     update(dt) {
         if (this.dead) return;
 
-        // Waka Animation
+        // Animation
         if (this.dir !== NONE) {
             const t = Date.now() * 0.02;
             this.body.scale.set(1, 1 - (Math.sin(t)+1)*0.1, 1);
         }
 
-        // Input
         let input = NONE;
-        const k = this.game.keys;
         
-        // 1. KEYBOARD
-        if (this.id === 1) {
-            if (k['ArrowUp']) input = UP;
-            else if (k['ArrowDown']) input = DOWN;
-            else if (k['ArrowLeft']) input = LEFT;
-            else if (k['ArrowRight']) input = RIGHT;
-        } else {
-            if (k['w']) input = UP;
-            else if (k['s']) input = DOWN;
-            else if (k['a']) input = LEFT;
-            else if (k['d']) input = RIGHT;
+        // 1. If DEMO, input is handled by updateAI setting nextDir directly
+        if (!this.game.isDemo) {
+            const k = this.game.keys;
+            if (this.id === 1) {
+                if (k['ArrowUp']) input = UP;
+                else if (k['ArrowDown']) input = DOWN;
+                else if (k['ArrowLeft']) input = LEFT;
+                else if (k['ArrowRight']) input = RIGHT;
+            } else {
+                if (k['w']) input = UP;
+                else if (k['s']) input = DOWN;
+                else if (k['a']) input = LEFT;
+                else if (k['d']) input = RIGHT;
+            }
+
+            // Gamepad
+            const gpIndex = Object.keys(this.game.gamepadMap).find(key => this.game.gamepadMap[key] === this.id);
+            if (gpIndex !== undefined) {
+                const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+                const gp = gps[gpIndex];
+                if (gp) {
+                    if (gp.axes[1] < -0.5) input = UP;
+                    else if (gp.axes[1] > 0.5) input = DOWN;
+                    else if (gp.axes[0] < -0.5) input = LEFT;
+                    else if (gp.axes[0] > 0.5) input = RIGHT;
+                    if (gp.buttons[12]?.pressed) input = UP;
+                    if (gp.buttons[13]?.pressed) input = DOWN;
+                    if (gp.buttons[14]?.pressed) input = LEFT;
+                    if (gp.buttons[15]?.pressed) input = RIGHT;
+                }
+            }
+            if (input !== NONE) this.nextDir = input;
         }
 
-        // 2. GAMEPAD OVERRIDE
-        const gps = navigator.getGamepads ? navigator.getGamepads() : [];
-        // Find if any gamepad is assigned to this Player ID
-        const gpIndex = Object.keys(this.gamepadMap || this.game.gamepadMap).find(key => this.game.gamepadMap[key] === this.id);
-        
-        if (gpIndex !== undefined && gps[gpIndex]) {
-            const gp = gps[gpIndex];
-            // Axes (Stick)
-            if (gp.axes[1] < -0.5) input = UP;
-            else if (gp.axes[1] > 0.5) input = DOWN;
-            else if (gp.axes[0] < -0.5) input = LEFT;
-            else if (gp.axes[0] > 0.5) input = RIGHT;
-
-            // D-Pad (Standard Mapping: 12=Up, 13=Down, 14=Left, 15=Right)
-            if (gp.buttons[12]?.pressed) input = UP;
-            if (gp.buttons[13]?.pressed) input = DOWN;
-            if (gp.buttons[14]?.pressed) input = LEFT;
-            if (gp.buttons[15]?.pressed) input = RIGHT;
-        }
-
-        if (input !== NONE) this.nextDir = input;
-
-        // Movement Step
         const result = this.drive(dt);
 
-        // LOGIC AT INTERSECTION
         if (result.reachedCenter || this.dir === NONE) {
-            
-            // 1. Can we turn to nextDir?
+            // Turn?
             if (this.nextDir !== NONE) {
                 const nextC = this.tilePos.col + this.nextDir.x;
                 const nextR = this.tilePos.row + this.nextDir.z;
                 if (this.game.isWalkable(nextC, nextR)) {
                     this.dir = this.nextDir;
                     this.nextDir = NONE;
-                    // Rotate Visuals
                     if(this.dir === UP) this.body.rotation.z = Math.PI;
                     if(this.dir === DOWN) this.body.rotation.z = 0;
                     if(this.dir === LEFT) this.body.rotation.z = -Math.PI/2;
@@ -925,19 +1026,17 @@ class GhostMan extends Actor {
                 }
             }
 
-            // 2. Can we continue current dir?
+            // Continue?
             const nextC = this.tilePos.col + this.dir.x;
             const nextR = this.tilePos.row + this.dir.z;
             
             if (!this.game.isWalkable(nextC, nextR)) {
-                // HIT WALL: Stop EXACTLY at center
                 this.dir = NONE;
                 const center = this.game.getPixelForTile(this.tilePos.col, this.tilePos.row);
                 this.pixelPos.x = center.x;
                 this.pixelPos.z = center.z;
                 this.mesh.position.set(this.pixelPos.x, 0, this.pixelPos.z);
             } else {
-                // Path is clear, move into next tile with remaining time
                 if (result.remainingDt > 0 && this.dir !== NONE) {
                     this.pixelPos.x += this.dir.x * this.speed * result.remainingDt;
                     this.pixelPos.z += this.dir.z * this.speed * result.remainingDt;
@@ -946,7 +1045,6 @@ class GhostMan extends Actor {
             }
         }
 
-        // Pellet Logic
         const pIdx = this.game.pellets.findIndex(p => p.active && p.x === this.tilePos.col && p.z === this.tilePos.row);
         if (pIdx !== -1) {
             const p = this.game.pellets[pIdx];
@@ -954,7 +1052,7 @@ class GhostMan extends Actor {
             p.mesh.visible = false;
             if(p.type === 'normal') {
                 this.addScore(10);
-                this.game.audio.playWaka();
+                if(!this.game.isDemo) this.game.audio.playWaka();
             } else {
                 this.addScore(50);
                 this.game.activatePowerPellet();
@@ -1053,7 +1151,6 @@ class Ghost extends Actor {
         const result = this.drive(dt);
 
         if (result.reachedCenter) {
-            // Revive
             if (this.mode === 'EATEN' && Math.abs(this.tilePos.col - 13) < 2 && Math.abs(this.tilePos.row - 14) < 2) {
                 this.setMode('CHASE');
                 this.dir = UP;
@@ -1084,7 +1181,6 @@ class Ghost extends Actor {
                  this.dir = { x: -this.dir.x, z: -this.dir.z };
             }
 
-            // Eyes
             if(this.dir === UP) this.eyes.rotation.y = Math.PI;
             if(this.dir === DOWN) this.eyes.rotation.y = 0;
             if(this.dir === LEFT) this.eyes.rotation.y = -Math.PI/2;
@@ -1097,7 +1193,6 @@ class Ghost extends Actor {
             }
         }
 
-        // Collision
         this.game.players.forEach(p => {
             if (p.dead) return;
             const dist = Math.abs(p.pixelPos.x - this.pixelPos.x) + Math.abs(p.pixelPos.z - this.pixelPos.z);
@@ -1109,4 +1204,5 @@ class Ghost extends Actor {
     }
 }
 
+// Start
 new Game();
