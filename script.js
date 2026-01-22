@@ -19,11 +19,7 @@ const SPEED_NORMAL = 50;
 const SPEED_FRIGHT = 35;
 const SPEED_GHOST_NORMAL = 45;
 const SPEED_GHOST_FRIGHT = 25;
-<<<<<<< HEAD
-const SPEED_DEMO_BOT = 60; // Slightly faster for demo survival
-=======
 const SPEED_DEMO_BOT = 55;
->>>>>>> 20d3a73 (adjusted AI bot ghost and custom map creation)
 
 // KEY: 1 = Wall, 0/9 = Walkable, 2/3 = Pellets, 5 = Door
 const MAP_LAYOUT = [
@@ -64,11 +60,7 @@ const RIGHT = { x: 1, z: 0 };
 const NONE = { x: 0, z: 0 };
 
 /**
-<<<<<<< HEAD
- * --- PROCEDURAL MAP GENERATOR ---
-=======
  * --- PROCEDURAL MAP GENERATOR (With Fixed Ghost Exit) ---
->>>>>>> 20d3a73 (adjusted AI bot ghost and custom map creation)
  */
 class MazeGenerator {
     static generate(width, height, mirrored = true) {
@@ -96,19 +88,10 @@ class MazeGenerator {
         // DFS Maze Gen
         const stack = [];
         
-<<<<<<< HEAD
-        // FIX: Start digging exactly above the ghost house door to ensure connection
-        // This guarantees that the maze pathfinding connects to the ghost exit.
-        const startX = cx; 
-        const startY = houseY - 2; 
-
-        // Safety check for small maps
-=======
         // Start digging exactly above the ghost house door
         const startX = cx; 
         const startY = houseY - 2; 
 
->>>>>>> 20d3a73 (adjusted AI bot ghost and custom map creation)
         if (startY < 1) return grid;
 
         const visited = new Set();
@@ -132,10 +115,6 @@ class MazeGenerator {
                     
                     if (nx > 0 && nx <= limitX && ny > 0 && ny < h - 1) {
                          // Don't dig INTO the ghost house, but allow digging AROUND it.
-<<<<<<< HEAD
-                         // Modified buffer logic to allow connection to the start point (house exit).
-=======
->>>>>>> 20d3a73 (adjusted AI bot ghost and custom map creation)
                          if (Math.abs(nx - cx) > houseW/2 + 1 || Math.abs(ny - cy) > houseH/2 + 1) {
                              if(!isVisited(nx, ny)) neighbors.push({x: nx, y: ny, dx: d.dx, dy: d.dy});
                          }
@@ -156,11 +135,7 @@ class MazeGenerator {
 
         dig(startX, startY);
 
-<<<<<<< HEAD
-        // Enforce Ghost House Walls & Interior (Post-Dig to ensure clean walls)
-=======
         // Enforce Ghost House Walls & Interior
->>>>>>> 20d3a73 (adjusted AI bot ghost and custom map creation)
         for(let y = houseY - 1; y <= houseY + houseH; y++) {
             for(let x = houseX - 1; x <= houseX + houseW; x++) {
                 if (y >= houseY && y < houseY + houseH && x >= houseX && x < houseX + houseW) {
@@ -175,11 +150,7 @@ class MazeGenerator {
         
         // Carve Door & Exit Path Explicitly
         grid[houseY-1][cx] = 5; 
-<<<<<<< HEAD
-        grid[houseY-2][cx] = 0; // Ensure the tile outside the door is walkable
-=======
         grid[houseY-2][cx] = 0; 
->>>>>>> 20d3a73 (adjusted AI bot ghost and custom map creation)
         
         if(w % 2 === 0) {
              grid[houseY-1][cx-1] = 5;
@@ -212,21 +183,13 @@ class MazeGenerator {
         // Fill Pellets
         for(let y=1; y<h-1; y++) {
             for(let x=1; x<w-1; x++) {
-<<<<<<< HEAD
-                // Prevent pellets inside ghost house or at immediate spawn exit
-=======
->>>>>>> 20d3a73 (adjusted AI bot ghost and custom map creation)
                 const inHouse = (x >= houseX && x < houseX+houseW && y >= houseY && y < houseY+houseH);
                 const isExit = (x === cx && y === houseY - 2) || (w%2===0 && x === cx-1 && y === houseY-2);
                 if(grid[y][x] === 0 && !inHouse && !isExit) grid[y][x] = 2;
             }
         }
 
-<<<<<<< HEAD
-        // Power Pellets (Corners)
-=======
         // Power Pellets
->>>>>>> 20d3a73 (adjusted AI bot ghost and custom map creation)
         [ {c:1, r:1}, {c:1, r:h-2}, {c:w-2, r:1}, {c:w-2, r:h-2} ].forEach(p => {
              if(grid[p.r] && grid[p.r][p.c] !== 1) grid[p.r][p.c] = 3;
         });
@@ -430,10 +393,6 @@ class GhostMan extends Actor {
         if(spawnR >= this.game.mapH) spawnR = this.game.mapH - 2;
         if(spawnC >= this.game.mapW) spawnC = 1;
         if(!this.game.isWalkable(spawnC, spawnR)) {
-<<<<<<< HEAD
-             // Fallback search
-=======
->>>>>>> 20d3a73 (adjusted AI bot ghost and custom map creation)
              spawnR = this.game.mapH - 2;
         }
 
@@ -459,18 +418,12 @@ class GhostMan extends Actor {
 
     // --- REVISED AI BOT LOGIC FOR DEMO ---
     updateAI() {
-<<<<<<< HEAD
-        const center = this.game.getPixelForTile(this.tilePos.col, this.tilePos.row);
-        if (this.dir !== NONE && Math.abs(center.x - this.pixelPos.x) > 0.5) return;
-        
-=======
         // Only think if we are at the center of a tile to make clean turns
         const center = this.game.getPixelForTile(this.tilePos.col, this.tilePos.row);
         if (this.dir !== NONE && Math.abs(center.x - this.pixelPos.x) > 1) return;
         if (this.dir !== NONE && Math.abs(center.z - this.pixelPos.z) > 1) return;
         
         // 1. Analyze Environment
->>>>>>> 20d3a73 (adjusted AI bot ghost and custom map creation)
         const ghosts = this.game.ghosts.filter(g => g.mode !== 'EATEN');
         const dangerous = ghosts.filter(g => g.mode !== 'FRIGHTENED');
         const huntable = ghosts.filter(g => g.mode === 'FRIGHTENED');
@@ -480,25 +433,13 @@ class GhostMan extends Actor {
         const moves = [UP, DOWN, LEFT, RIGHT];
         const validMoves = moves.filter(d => this.game.isWalkable(this.tilePos.col + d.x, this.tilePos.row + d.z));
 
-<<<<<<< HEAD
-        // Filter out moves that lead directly into a ghost
-=======
         // 3. Safety Filter (Filter out immediate suicide)
->>>>>>> 20d3a73 (adjusted AI bot ghost and custom map creation)
         const safeMoves = validMoves.filter(d => {
             const nx = this.tilePos.col + d.x;
             const ny = this.tilePos.row + d.z;
-            return !dangerous.some(g => Math.abs(g.tilePos.col - nx) + Math.abs(g.tilePos.row - ny) < 3);
+            return !dangerous.some(g => Math.abs(g.tilePos.col - nx) + Math.abs(g.tilePos.row - ny) < 2);
         });
 
-<<<<<<< HEAD
-        // If trapped, try any valid move
-        const choices = safeMoves.length > 0 ? safeMoves : validMoves; 
-        if (choices.length === 0) return;
-
-        // Simple BFS Pathfinding
-        const findPath = (goals) => {
-=======
         // Use safe moves if available, else panic with any valid move
         const candidates = safeMoves.length > 0 ? safeMoves : validMoves;
         if (candidates.length === 0) return;
@@ -506,20 +447,10 @@ class GhostMan extends Actor {
         // Helper: BFS Pathfinding
         // allowRisk: if false, treats tiles near dangerous ghosts as walls (ensures "path is clear")
         const getBestMove = (targets, allowRisk) => {
->>>>>>> 20d3a73 (adjusted AI bot ghost and custom map creation)
             const queue = [{ c: this.tilePos.col, r: this.tilePos.row, firstMove: null }];
             const visited = new Set();
             visited.add(`${this.tilePos.col},${this.tilePos.row}`);
 
-<<<<<<< HEAD
-            let iterations = 0;
-            // Limit search depth to prevent lag on larger custom maps
-            while(queue.length > 0 && iterations < 400) { 
-                iterations++;
-                const cur = queue.shift();
-                
-                if (goals.some(g => g.c === cur.c && g.r === cur.r)) {
-=======
             // If not allowing risk, block out dangerous ghost areas in the search
             if (!allowRisk) {
                 dangerous.forEach(g => {
@@ -533,17 +464,13 @@ class GhostMan extends Actor {
 
                 // Check if current tile is a target
                 if (targets.some(g => g.c === cur.c && g.r === cur.r)) {
->>>>>>> 20d3a73 (adjusted AI bot ghost and custom map creation)
                     return cur.firstMove;
                 }
 
                 for (let m of moves) {
                     const nc = cur.c + m.x;
                     const nr = cur.r + m.z;
-                    // Don't traverse through dangerous ghosts in pathfinding
-                    const unsafe = dangerous.some(g => Math.abs(g.tilePos.col - nc) + Math.abs(g.tilePos.row - nr) < 1);
-                    
-                    if (this.game.isWalkable(nc, nr) && !visited.has(`${nc},${nr}`) && !unsafe) {
+                    if (this.game.isWalkable(nc, nr) && !visited.has(`${nc},${nr}`)) {
                         visited.add(`${nc},${nr}`);
                         queue.push({ c: nc, r: nr, firstMove: cur.firstMove || m });
                     }
@@ -554,41 +481,12 @@ class GhostMan extends Actor {
 
         let targetMove = null;
 
-<<<<<<< HEAD
-        // 1. Hunt Blue Ghosts
-=======
         // PRIORITY 1: Hunt Blue Ghosts (Allow risk because we want to eat them)
->>>>>>> 20d3a73 (adjusted AI bot ghost and custom map creation)
         if (huntable.length > 0) {
             const targets = huntable.map(g => ({ c: g.tilePos.col, r: g.tilePos.row }));
             targetMove = getBestMove(targets, true);
         }
 
-<<<<<<< HEAD
-        // 2. Find Pellets if no ghosts to hunt
-        if (!targetMove) {
-            const pellets = this.game.pellets.filter(p => p.active);
-            if(pellets.length > 0) {
-                // Find closest 5 pellets to save CPU
-                const pTargets = pellets
-                    .sort((a,b) => {
-                        const da = Math.abs(a.x - this.tilePos.col) + Math.abs(a.z - this.tilePos.row);
-                        const db = Math.abs(b.x - this.tilePos.col) + Math.abs(b.z - this.tilePos.row);
-                        return da - db;
-                    })
-                    .slice(0, 5)
-                    .map(p => ({c: p.x, r: p.z}));
-                targetMove = findPath(pTargets);
-            }
-        }
-
-        // Execute Move
-        if (targetMove && choices.includes(targetMove)) {
-            this.nextDir = targetMove;
-        } else {
-            // Random valid move if no path found
-            this.nextDir = choices[Math.floor(Math.random() * choices.length)];
-=======
         // PRIORITY 2: Go for Power Pellet (Only if path is clear of dangerous ghosts)
         if (!targetMove && powerPellets.length > 0) {
             const targets = powerPellets.map(p => ({c: p.x, r: p.z}));
@@ -645,7 +543,6 @@ class GhostMan extends Actor {
                 // If safe and no targets (rare), just wander randomly
                 this.nextDir = candidates[Math.floor(Math.random() * candidates.length)];
             }
->>>>>>> 20d3a73 (adjusted AI bot ghost and custom map creation)
         }
     }
 
@@ -768,11 +665,7 @@ class Ghost extends Actor {
         const cx = Math.floor(this.game.mapW/2);
         const cy = Math.floor(this.game.mapH/2);
         
-<<<<<<< HEAD
-        // House Positions (Dynamic based on map center)
-=======
         // House Positions
->>>>>>> 20d3a73 (adjusted AI bot ghost and custom map creation)
         if(this.type === 'BLINKY') this.setTile(cx, cy - 2); 
         else if(this.type === 'PINKY') this.setTile(cx, cy); 
         else if(this.type === 'INKY') this.setTile(cx - 2, cy); 
