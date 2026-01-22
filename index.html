@@ -3,11 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GhostMan 3D: Arcade Edition</title>
+    <title>GhostMan 3D: Custom Edition</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     
-    <!-- Import Three.js as a Module -->
     <script type="importmap">
         {
             "imports": {
@@ -19,54 +20,84 @@
 </head>
 <body>
     <div id="game-container">
-        <!-- HUD / UI Layer -->
+        <!-- UI Overlay -->
         <div id="ui-layer">
             
-            <!-- Gamepad Connection Toasts -->
             <div id="gamepad-notify"></div>
 
-            <!-- Score HUD -->
             <div class="score-board">
-                <div id="p1-score-box">
+                <div class="score-box p1">
                     <div class="label">1UP</div>
                     <div id="score-p1">00</div>
                     <div id="lives-p1" class="lives"></div>
                 </div>
-                <div id="high-score-box">
+                <div class="score-box high">
                     <div class="label">HIGH SCORE</div>
                     <div id="high-score">10000</div>
                 </div>
-                <div id="p2-score-box">
+                <div class="score-box p2">
                     <div class="label">2UP</div>
                     <div id="score-p2">00</div>
                     <div id="lives-p2" class="lives"></div>
                 </div>
             </div>
             
-            <!-- Main Menu / Message Center -->
+            <!-- Main Menu -->
             <div id="center-message">
                 <h1 id="main-title">GhostMan 3D</h1>
                 
-                <p id="sub-message">MAP: ORIGINAL (SPACE TO START)</p>
-                
-                <!-- New Demo Countdown Element -->
                 <div id="demo-countdown" class="hidden">DEMO IN 4</div>
 
+                <p id="sub-message">MAP: ORIGINAL</p>
+                
                 <div id="mode-select">
-                    <button id="btn-1p" class="selected">1 PLAYER</button>
-                    <button id="btn-2p">2 PLAYERS</button>
-                    <div class="controls-hint">
-                        <span>P1: ARROWS</span> • <span>P2: WASD</span> • <span>SPACE: START</span>
-                    </div>
+                    <button id="btn-1p" class="menu-btn selected">1 PLAYER</button>
+                    <button id="btn-2p" class="menu-btn">2 PLAYERS</button>
+                </div>
+
+                <button id="btn-start-game" class="action-btn">START GAME</button>
+
+                <div class="controls-hint">
+                    <p>ARROWS / WASD to Move</p>
+                    <p>Press 'O' for Options / Custom Map</p>
                 </div>
             </div>
+
+            <!-- Options Menu -->
+            <div id="options-menu" class="hidden">
+                <h2>CUSTOM OPTIONS</h2>
+                <div class="opt-row">
+                    <label>WIDTH:</label>
+                    <div class="opt-controls">
+                        <button id="opt-w-dec">&lt;</button>
+                        <span id="opt-w-val">28</span>
+                        <button id="opt-w-inc">&gt;</button>
+                    </div>
+                </div>
+                <div class="opt-row">
+                    <label>HEIGHT:</label>
+                    <div class="opt-controls">
+                        <button id="opt-h-dec">&lt;</button>
+                        <span id="opt-h-val">31</span>
+                        <button id="opt-h-inc">&gt;</button>
+                    </div>
+                </div>
+                <div class="opt-row">
+                    <label>SYMMETRY:</label>
+                    <button id="opt-algo-toggle">MIRRORED</button>
+                </div>
+                <div class="opt-row">
+                    <label>THEME:</label>
+                    <button id="opt-color-toggle">CLASSIC</button>
+                </div>
+                <button id="btn-close-options" class="action-btn">APPLY & CLOSE</button>
+            </div>
+
         </div>
         
-        <!-- 3D Rendering Canvas -->
         <canvas id="game-canvas"></canvas>
     </div>
 
-    <!-- Main Logic -->
     <script type="module" src="script.js"></script>
 </body>
 </html>

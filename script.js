@@ -1,21 +1,22 @@
 import * as THREE from 'three';
 
 /**
- * CONFIGURATION & CONSTANTS
+ * --- CONFIGURATION & CONSTANTS ---
  */
 const TILE_SIZE = 10;
 const WALL_HEIGHT = 2.5;
 const WALL_THICKNESS = 4;
 
-const MAZE_W = 28;
-const MAZE_H = 31;
+// Default Dimensions for Random/Original
+const DEFAULT_W = 28;
+const DEFAULT_H = 31;
 
-// Speeds
+// Speeds (Units per second)
 const SPEED_NORMAL = 50; 
 const SPEED_FRIGHT = 35;
 const SPEED_GHOST_NORMAL = 45;
 const SPEED_GHOST_FRIGHT = 25;
-const SPEED_DEMO_BOT = 55; // Slightly faster to make the demo look skilled
+const SPEED_DEMO_BOT = 60; // Slightly faster for demo survival
 
 // KEY: 1 = Wall, 0/9 = Walkable, 2/3 = Pellets, 5 = Door
 const MAP_LAYOUT = [
@@ -32,7 +33,7 @@ const MAP_LAYOUT = [
     "0000012111119119111112100000",
     "0000012119999999999112100000",
     "1111112119111551119112111111",
-    "9999992999144444419992999999", // Tunnel Row
+    "9999992999144444419992999999", // Tunnel Row (Index 13)
     "1111112119111111119112111111",
     "0000012119999999999112100000",
     "0000012119111111119112100000",
@@ -56,94 +57,163 @@ const RIGHT = { x: 1, z: 0 };
 const NONE = { x: 0, z: 0 };
 
 /**
- * PROCEDURAL MAP GENERATOR
+ * --- PROCEDURAL MAP GENERATOR ---
  */
 class MazeGenerator {
-    static generate() {
-        let grid = Array(MAZE_H).fill().map(() => Array(MAZE_W).fill(1));
+    static generate(width, height, mirrored = true) {
+        let w = width;
+        let h = height;
+        
+        let grid = Array(h).fill().map(() => Array(w).fill(1));
 
         const setCell = (x, y, val) => {
-            grid[y][x] = val;
-            grid[y][MAZE_W - 1 - x] = val;
+            if (x >= 0 && x < w && y >= 0 && y < h) {
+                grid[y][x] = val;
+                if (mirrored) grid[y][w - 1 - x] = val;
+            }
         };
 
-        for(let y=12; y<=16; y++) {
-            for(let x=10; x<=17; x++) {
-                grid[y][x] = (y===12 && (x===13||x===14)) ? 5 : (y>12 && x>10 && x<17) ? 9 : 1;
-            }
-        }
-        for(let x=0; x<MAZE_W; x++) grid[13][x] = (x < 5 || x > MAZE_W-6) ? 0 : grid[13][x];
+        const cx = Math.floor(w / 2);
+        const cy = Math.floor(h / 2);
 
+        // Define Ghost House Dimensions
+        const houseW = 6;
+        const houseH = 4;
+        const houseX = cx - Math.floor(houseW/2);
+        const houseY = cy - Math.floor(houseH/2);
+
+        // DFS Maze Gen
         const stack = [];
-        const startX = 1;
-        const startY = 1;
+        
+        // FIX: Start digging exactly above the ghost house door to ensure connection
+        // This guarantees that the maze pathfinding connects to the ghost exit.
+        const startX = cx; 
+        const startY = houseY - 2; 
+
+        // Safety check for small maps
+        if (startY < 1) return grid;
+
         const visited = new Set();
-        const visit = (x, y) => visited.add(`${x},${y}`);
-        const isVisited = (x, y) => visited.has(`${x},${y}`);
+        const key = (x,y) => `${x},${y}`;
+        const isVisited = (x, y) => visited.has(key(x,y));
 
-        stack.push({x: startX, y: startY});
-        visit(startX, startY);
-        setCell(startX, startY, 0);
+        const dig = (sx, sy) => {
+            stack.push({x: sx, y: sy});
+            visited.add(key(sx,sy));
+            setCell(sx, sy, 0);
 
-        while(stack.length > 0) {
-            const current = stack[stack.length - 1];
-            const neighbors = [];
-            [{dx:0, dy:-2}, {dx:0, dy:2}, {dx:-2, dy:0}, {dx:2, dy:0}].forEach(d => {
-                const nx = current.x + d.dx;
-                const ny = current.y + d.dy;
-                if(nx > 0 && nx < (MAZE_W/2) - 1 && ny > 0 && ny < MAZE_H - 1) {
-                    if(!isVisited(nx, ny)) neighbors.push({x: nx, y: ny, dx: d.dx, dy: d.dy});
+            while(stack.length > 0) {
+                const current = stack[stack.length - 1];
+                const neighbors = [];
+                // Look 2 steps
+                [{dx:0, dy:-2}, {dx:0, dy:2}, {dx:-2, dy:0}, {dx:2, dy:0}].forEach(d => {
+                    const nx = current.x + d.dx;
+                    const ny = current.y + d.dy;
+                    
+                    const limitX = mirrored ? cx - 1 : w - 2;
+                    
+                    if (nx > 0 && nx <= limitX && ny > 0 && ny < h - 1) {
+                         // Don't dig INTO the ghost house, but allow digging AROUND it.
+                         // Modified buffer logic to allow connection to the start point (house exit).
+                         if (Math.abs(nx - cx) > houseW/2 + 1 || Math.abs(ny - cy) > houseH/2 + 1) {
+                             if(!isVisited(nx, ny)) neighbors.push({x: nx, y: ny, dx: d.dx, dy: d.dy});
+                         }
+                    }
+                });
+
+                if(neighbors.length > 0) {
+                    const chosen = neighbors[Math.floor(Math.random() * neighbors.length)];
+                    setCell(current.x + chosen.dx/2, current.y + chosen.dy/2, 0);
+                    setCell(chosen.x, chosen.y, 0);
+                    visited.add(key(chosen.x, chosen.y));
+                    stack.push({x: chosen.x, y: chosen.y});
+                } else {
+                    stack.pop();
                 }
-            });
+            }
+        };
 
-            if(neighbors.length > 0) {
-                const chosen = neighbors[Math.floor(Math.random() * neighbors.length)];
-                setCell(current.x + chosen.dx/2, current.y + chosen.dy/2, 0);
-                setCell(chosen.x, chosen.y, 0);
-                visit(chosen.x, chosen.y);
-                stack.push({x: chosen.x, y: chosen.y});
-            } else {
-                stack.pop();
+        dig(startX, startY);
+
+        // Enforce Ghost House Walls & Interior (Post-Dig to ensure clean walls)
+        for(let y = houseY - 1; y <= houseY + houseH; y++) {
+            for(let x = houseX - 1; x <= houseX + houseW; x++) {
+                if (y >= houseY && y < houseY + houseH && x >= houseX && x < houseX + houseW) {
+                   grid[y][x] = 9; // Ghost zone
+                   if(mirrored) grid[y][w - 1 - x] = 9;
+                } else {
+                   grid[y][x] = 1; // Walls around house
+                   if(mirrored) grid[y][w - 1 - x] = 1;
+                }
             }
         }
+        
+        // Carve Door & Exit Path Explicitly
+        grid[houseY-1][cx] = 5; 
+        grid[houseY-2][cx] = 0; // Ensure the tile outside the door is walkable
+        
+        if(w % 2 === 0) {
+             grid[houseY-1][cx-1] = 5;
+             grid[houseY-2][cx-1] = 0;
+        }
 
-        for(let y=2; y<MAZE_H-2; y++) {
-            for(let x=2; x<(MAZE_W/2)-1; x++) {
-                if(grid[y][x] === 1 && Math.random() > 0.85) {
-                    if(grid[y-1][x]!==1 && grid[y+1][x]!==1) setCell(x,y,0);
-                    if(grid[y][x-1]!==1 && grid[y][x+1]!==1) setCell(x,y,0);
+        // Add random loops
+        const density = 0.15; 
+        for(let y=1; y<h-1; y++) {
+            for(let x=1; x<(mirrored ? cx : w-1); x++) {
+                if(grid[y][x] === 1 && Math.random() < density) {
+                    let paths = 0;
+                    if(grid[y-1][x]!==1) paths++;
+                    if(grid[y+1][x]!==1) paths++;
+                    if(grid[y][x-1]!==1) paths++;
+                    if(grid[y][x+1]!==1) paths++;
+                    if(paths >= 2) setCell(x,y,0);
                 }
             }
         }
 
-        for(let y=1; y<MAZE_H-1; y++) {
-            for(let x=1; x<MAZE_W-1; x++) {
-                if(grid[y][x] === 0) grid[y][x] = 2;
+        // Add Tunnel
+        const tunnelY = Math.floor(h * 0.45);
+        for(let x=0; x<w; x++) {
+            grid[tunnelY][x] = (x < 5 || x > w-6) ? 0 : grid[tunnelY][x];
+            if(x===5) grid[tunnelY][x] = 0;
+            if(x===w-6) grid[tunnelY][x] = 0;
+        }
+
+        // Fill Pellets
+        for(let y=1; y<h-1; y++) {
+            for(let x=1; x<w-1; x++) {
+                // Prevent pellets inside ghost house or at immediate spawn exit
+                const inHouse = (x >= houseX && x < houseX+houseW && y >= houseY && y < houseY+houseH);
+                const isExit = (x === cx && y === houseY - 2) || (w%2===0 && x === cx-1 && y === houseY-2);
+                if(grid[y][x] === 0 && !inHouse && !isExit) grid[y][x] = 2;
             }
         }
 
-        [ {c:1, r:3}, {c:1, r:23}, {c:26, r:3}, {c:26, r:23} ].forEach(p => {
-             if(grid[p.r][p.c] !== 1) grid[p.r][p.c] = 3;
+        // Power Pellets (Corners)
+        [ {c:1, r:1}, {c:1, r:h-2}, {c:w-2, r:1}, {c:w-2, r:h-2} ].forEach(p => {
+             if(grid[p.r] && grid[p.r][p.c] !== 1) grid[p.r][p.c] = 3;
         });
 
-        grid[23][13] = 0; grid[23][14] = 0;
-        grid[11][13] = 9; grid[11][14] = 9;
-        grid[29][1] = 0; grid[29][26] = 0;
-
-        return grid.map(row => row.join(''));
+        // Ensure Spawn is empty inside house
+        grid[houseY][cx] = 9; 
+        if(w % 2 === 0) grid[houseY][cx-1] = 9;
+        
+        return grid;
     }
 }
 
 /**
- * AUDIO SYNTHESIZER
+ * --- AUDIO SYNTHESIZER ---
  */
 class SoundManager {
     constructor() {
         this.ctx = new (window.AudioContext || window.webkitAudioContext)();
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = 0.10;
+        this.masterGain.gain.value = 0.10; 
         this.masterGain.connect(this.ctx.destination);
         this.enabled = false;
+        this.lastWaka = 0;
     }
 
     tryInit() {
@@ -183,7 +253,7 @@ class SoundManager {
     playWaka() {
         this.tryInit();
         const now = this.ctx.currentTime;
-        if (this.lastWaka && now - this.lastWaka < 0.15) return;
+        if (this.lastWaka && now - this.lastWaka < 0.14) return;
         this.playTone(150, 'triangle', 0.08);
         this.playTone(250, 'triangle', 0.08, 0.09);
         this.lastWaka = now;
@@ -202,556 +272,7 @@ class SoundManager {
 }
 
 /**
- * GAME ENGINE
- */
-class Game {
-    constructor() {
-        this.scene = new THREE.Scene();
-        this.audio = new SoundManager();
-        
-        this.twoPlayerMode = false;
-        this.mapStyle = 'ORIGINAL';
-        this.isDemo = false; // Flag for Demo Mode
-        
-        this.gamepadMap = {};
-        this.activeGamepads = new Set();
-        
-        this.walls = [];
-        this.pellets = [];
-        this.actors = [];
-        this.ghosts = [];
-        this.players = [];
-        this.grid = []; 
-
-        this.state = 'MENU';
-        this.level = 1;
-        this.modeTimer = 0;
-        this.ghostMode = 'SCATTER';
-        this.frightenedTime = 0;
-        this.ghostCombo = 0;
-
-        // Auto-Demo Logic
-        this.lastInputTime = Date.now();
-        this.demoCountdown = 4;
-        
-        this.lastFrameTime = 0;
-        this.accumulator = 0;
-        this.fixedStep = 1 / 60;
-
-        this.ui = {
-            title: document.getElementById('center-message'),
-            mainText: document.getElementById('main-title'),
-            subText: document.getElementById('sub-message'),
-            demoText: document.getElementById('demo-countdown'),
-            p1Score: document.getElementById('score-p1'),
-            p2Score: document.getElementById('score-p2'),
-            p1Lives: document.getElementById('lives-p1'),
-            p2Lives: document.getElementById('lives-p2'),
-            btn1p: document.getElementById('btn-1p'),
-            btn2p: document.getElementById('btn-2p'),
-            notify: document.getElementById('gamepad-notify')
-        };
-
-        this.initThree();
-        this.buildMaze();
-        this.setupInput();
-
-        requestAnimationFrame(this.loop.bind(this));
-    }
-
-    initThree() {
-        const aspect = window.innerWidth / window.innerHeight;
-        const frustumSize = 350;
-        this.camera = new THREE.OrthographicCamera(
-            frustumSize * aspect / -2, frustumSize * aspect / 2,
-            frustumSize / 2, frustumSize / -2,
-            1, 1000
-        );
-        
-        this.camera.position.set(0, 200, 150); 
-        this.camera.lookAt(0, 0, 15);
-
-        this.renderer = new THREE.WebGLRenderer({ 
-            canvas: document.getElementById('game-canvas'), 
-            antialias: true 
-        });
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setClearColor(0x050505);
-
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-        this.scene.add(ambientLight);
-
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
-        dirLight.position.set(50, 100, 50);
-        this.scene.add(dirLight);
-
-        const floorGeo = new THREE.PlaneGeometry(MAZE_W * TILE_SIZE + 20, MAZE_H * TILE_SIZE + 20);
-        const floorMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
-        const floor = new THREE.Mesh(floorGeo, floorMat);
-        floor.rotation.x = -Math.PI / 2;
-        floor.position.y = -5;
-        this.scene.add(floor);
-    }
-
-    showNotification(msg) {
-        const div = document.createElement('div');
-        div.className = 'gp-toast';
-        div.innerText = msg;
-        this.ui.notify.appendChild(div);
-        setTimeout(() => div.remove(), 3000);
-    }
-
-    // Called on any user interaction
-    resetIdleTimer() {
-        this.lastInputTime = Date.now();
-        this.ui.demoText.classList.add('hidden');
-        
-        // If in Demo, Interrupt!
-        if (this.state === 'DEMO') {
-            this.resetGame();
-        }
-    }
-
-    pollGamepads() {
-        const gps = navigator.getGamepads ? navigator.getGamepads() : [];
-        let anyPressed = false;
-
-        for (let i = 0; i < gps.length; i++) {
-            const gp = gps[i];
-            if (gp) {
-                const pressed = gp.buttons.some((b, idx) => idx < 4 && b.pressed);
-                if (pressed) {
-                    anyPressed = true;
-                    if (!this.activeGamepads.has(gp.index)) {
-                        if (!Object.values(this.gamepadMap).includes(1)) {
-                            this.gamepadMap[gp.index] = 1;
-                            this.activeGamepads.add(gp.index);
-                            this.showNotification(`GAMEPAD ${gp.index} JOINED AS P1`);
-                        } else if (!Object.values(this.gamepadMap).includes(2)) {
-                            this.gamepadMap[gp.index] = 2;
-                            this.activeGamepads.add(gp.index);
-                            this.showNotification(`GAMEPAD ${gp.index} JOINED AS P2`);
-                            this.twoPlayerMode = true;
-                            this.updateMenuUI();
-                        }
-                    }
-                    // Start Game via Gamepad
-                    if (this.state === 'MENU' && pressed) {
-                        this.resetIdleTimer();
-                        this.startGame(false);
-                    }
-                }
-            }
-        }
-        
-        if (anyPressed) this.resetIdleTimer();
-    }
-
-    buildMaze() {
-        this.walls.forEach(w => this.scene.remove(w));
-        this.pellets.forEach(p => this.scene.remove(p.mesh));
-        this.walls = [];
-        this.pellets = [];
-        this.grid = [];
-        
-        let layout = MAP_LAYOUT;
-        if (this.mapStyle === 'RANDOM') {
-            layout = MazeGenerator.generate();
-        }
-
-        const wallMat = new THREE.MeshLambertMaterial({ 
-            color: this.mapStyle === 'ORIGINAL' ? 0x2121de : 0xde2121, 
-            emissive: this.mapStyle === 'ORIGINAL' ? 0x080890 : 0x500808 
-        });
-
-        const jointGeo = new THREE.CylinderGeometry(WALL_THICKNESS/2, WALL_THICKNESS/2, WALL_HEIGHT, 16);
-        const hConnGeo = new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, WALL_THICKNESS); 
-        const vConnGeo = new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, TILE_SIZE); 
-
-        const pelletGeo = new THREE.SphereGeometry(1.5, 6, 6);
-        const powerGeo = new THREE.SphereGeometry(3.5, 8, 8);
-        const pelletMat = new THREE.MeshLambertMaterial({ color: 0xffb8ae });
-
-        const offsetX = (MAZE_W * TILE_SIZE) / 2;
-        const offsetZ = (MAZE_H * TILE_SIZE) / 2;
-
-        for (let row = 0; row < layout.length; row++) {
-            const rowArr = [];
-            for (let col = 0; col < layout[row].length; col++) {
-                const char = layout[row][col];
-                const val = parseInt(char);
-                rowArr.push(val);
-
-                const x = col * TILE_SIZE - offsetX + (TILE_SIZE/2);
-                const z = row * TILE_SIZE - offsetZ + (TILE_SIZE/2);
-
-                if (val === 1) {
-                    const joint = new THREE.Mesh(jointGeo, wallMat);
-                    joint.position.set(x, 0, z);
-                    this.scene.add(joint);
-                    this.walls.push(joint);
-
-                    if (col < layout[row].length - 1 && parseInt(layout[row][col + 1]) === 1) {
-                        const conn = new THREE.Mesh(hConnGeo, wallMat);
-                        conn.position.set(x + TILE_SIZE/2, 0, z); 
-                        this.scene.add(conn);
-                        this.walls.push(conn);
-                    }
-                    if (row < layout.length - 1 && parseInt(layout[row + 1][col]) === 1) {
-                        const conn = new THREE.Mesh(vConnGeo, wallMat);
-                        conn.position.set(x, 0, z + TILE_SIZE/2);
-                        this.scene.add(conn);
-                        this.walls.push(conn);
-                    }
-                } 
-                else if (val === 2) {
-                    const p = new THREE.Mesh(pelletGeo, pelletMat);
-                    p.position.set(x, 0, z);
-                    this.scene.add(p);
-                    this.pellets.push({ mesh: p, type: 'normal', x: col, z: row, active: true });
-                }
-                else if (val === 3) {
-                    const p = new THREE.Mesh(powerGeo, pelletMat);
-                    p.position.set(x, 0, z);
-                    this.scene.add(p);
-                    this.pellets.push({ mesh: p, type: 'power', x: col, z: row, active: true });
-                }
-                else if (val === 5) {
-                    const doorGeo = new THREE.BoxGeometry(TILE_SIZE, 1, 2);
-                    const doorMat = new THREE.MeshBasicMaterial({ color: 0xffb8ff, transparent: true, opacity: 0.5 });
-                    const door = new THREE.Mesh(doorGeo, doorMat);
-                    door.position.set(x, 0, z);
-                    this.scene.add(door);
-                }
-            }
-            this.grid.push(rowArr);
-        }
-    }
-
-    setupInput() {
-        this.keys = {};
-        window.addEventListener('keydown', (e) => {
-            this.resetIdleTimer(); // Reset idle on any key
-            
-            if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
-            this.keys[e.key] = true;
-
-            if(this.state === 'MENU') {
-                if(e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'w' || e.key === 's') {
-                    this.twoPlayerMode = !this.twoPlayerMode;
-                    this.updateMenuUI();
-                }
-                if(e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'a' || e.key === 'd') {
-                     this.mapStyle = (this.mapStyle === 'ORIGINAL') ? 'RANDOM' : 'ORIGINAL';
-                     this.ui.subText.innerText = `MAP: ${this.mapStyle} (SPACE TO START)`;
-                }
-                if(e.key === ' ' || e.key === 'Enter') this.startGame(false);
-            }
-            if(this.state === 'GAMEOVER' && (e.key === ' ' || e.key === 'Enter')) {
-                this.resetGame();
-            }
-        });
-        window.addEventListener('keyup', (e) => this.keys[e.key] = false);
-    }
-
-    updateMenuUI() {
-        if(this.twoPlayerMode) {
-            this.ui.btn1p.classList.remove('selected');
-            this.ui.btn2p.classList.add('selected');
-        } else {
-            this.ui.btn1p.classList.add('selected');
-            this.ui.btn2p.classList.remove('selected');
-        }
-    }
-
-    checkDemoTrigger() {
-        if(this.state !== 'MENU') return;
-        
-        const idleTime = (Date.now() - this.lastInputTime) / 1000;
-        const timeLeft = Math.ceil(4.0 - idleTime);
-
-        if (timeLeft <= 3 && timeLeft > 0) {
-            this.ui.demoText.classList.remove('hidden');
-            this.ui.demoText.innerText = `DEMO IN ${timeLeft}`;
-        } else if (timeLeft > 3) {
-            this.ui.demoText.classList.add('hidden');
-        }
-
-        if (idleTime >= 4.0) {
-            this.startGame(true); // Start Demo
-        }
-    }
-
-    createActors() {
-        this.actors.forEach(a => this.scene.remove(a.mesh));
-        this.players = [];
-        this.ghosts = [];
-        this.actors = [];
-
-        // P1
-        const p1 = new GhostMan(this, 1, 0xffff00);
-        this.players.push(p1);
-
-        // P2 (Only in real game if selected)
-        if (this.twoPlayerMode && !this.isDemo) {
-            const p2 = new GhostMan(this, 2, 0xffb8ff); 
-            this.players.push(p2);
-        }
-
-        const gColors = [0xff0000, 0xffb8ff, 0x00ffff, 0xffb852];
-        const gTypes = ['BLINKY', 'PINKY', 'INKY', 'CLYDE'];
-        
-        gTypes.forEach((type, i) => {
-            const g = new Ghost(this, type, gColors[i]);
-            this.ghosts.push(g);
-        });
-
-        this.actors = [...this.players, ...this.ghosts];
-    }
-
-    resetGame() {
-        this.state = 'MENU';
-        this.isDemo = false;
-        this.ui.title.style.display = 'block';
-        this.ui.mainText.innerText = "GhostMan 3D";
-        this.ui.subText.innerText = `MAP: ${this.mapStyle} (SPACE TO START)`;
-        this.ui.subText.style.display = "block";
-        this.ui.demoText.classList.add('hidden');
-        document.getElementById('mode-select').style.display = "flex";
-        this.level = 1;
-        this.lastInputTime = Date.now();
-        
-        this.gamepadMap = {};
-        this.activeGamepads.clear();
-        this.twoPlayerMode = false;
-        this.updateMenuUI();
-    }
-
-    startGame(isDemo = false) {
-        this.isDemo = isDemo;
-        this.state = isDemo ? 'DEMO' : 'PLAYING'; // Skip ready phase for demo usually? Or keep it.
-        
-        if(!isDemo) this.audio.tryInit();
-        this.ui.title.style.display = 'none';
-
-        if(this.mapStyle === 'RANDOM' || this.level === 1) this.buildMaze();
-
-        this.createActors();
-        this.resetLevel();
-        
-        if(!isDemo) this.audio.playIntro();
-        
-        this.players.forEach(p => {
-            p.score = 0;
-            p.lives = 3;
-            p.updateUI();
-            if(isDemo) p.speed = SPEED_DEMO_BOT; // Set Bot Speed
-        });
-
-        if (isDemo) {
-            this.ui.mainText.innerText = "DEMO MODE";
-            this.ui.subText.innerText = "PRESS ANY KEY TO START";
-            this.ui.title.style.display = 'block';
-            this.ui.title.style.background = 'transparent';
-            this.ui.title.style.border = 'none';
-            this.ui.title.style.boxShadow = 'none';
-            setTimeout(() => { 
-                if(this.state === 'DEMO') this.ui.title.style.display = 'none'; 
-            }, 2000);
-        } else {
-            setTimeout(() => { this.state = 'PLAYING'; }, 4000);
-        }
-    }
-
-    resetLevel() {
-        this.players.forEach(p => p.resetPosition());
-        this.ghosts.forEach(g => g.resetPosition());
-        
-        if (!this.isDemo) {
-            this.state = 'READY';
-            this.ui.title.style.display = 'block';
-            this.ui.title.style.background = 'transparent';
-            this.ui.title.style.border = 'none';
-            this.ui.title.style.boxShadow = 'none';
-            this.ui.mainText.innerText = "READY!";
-            this.ui.subText.style.display = 'none';
-        } else {
-            this.state = 'DEMO';
-        }
-        
-        document.getElementById('mode-select').style.display = "none";
-
-        if (!this.isDemo) {
-            setTimeout(() => {
-                if(this.state !== 'GAMEOVER') {
-                    this.ui.title.style.display = 'none';
-                    this.ui.title.style.background = 'rgba(0,0,0,0.9)';
-                    this.ui.title.style.border = '4px double var(--neon-blue)';
-                    this.state = 'PLAYING';
-                }
-            }, 2000);
-        }
-    }
-
-    loop(time) {
-        requestAnimationFrame(this.loop.bind(this));
-
-        if(this.state === 'MENU') {
-            this.pollGamepads();
-            this.checkDemoTrigger();
-        } else if (this.state === 'DEMO') {
-            // Also poll gamepads in Demo to allow interruption
-            this.pollGamepads();
-        }
-        
-        const seconds = time * 0.001;
-        if (this.lastFrameTime === 0) {
-            this.lastFrameTime = seconds;
-            return;
-        }
-
-        let frameTime = seconds - this.lastFrameTime;
-        this.lastFrameTime = seconds;
-        if (frameTime > 0.25) frameTime = 0.25;
-
-        this.accumulator += frameTime;
-
-        while (this.accumulator >= this.fixedStep) {
-            this.updatePhysics(this.fixedStep);
-            this.accumulator -= this.fixedStep;
-        }
-
-        this.renderer.render(this.scene, this.camera);
-    }
-
-    updatePhysics(dt) {
-        if (this.state === 'PLAYING' || this.state === 'DEMO') {
-            if (this.frightenedTime > 0) {
-                this.frightenedTime -= dt;
-                if (this.frightenedTime <= 0) {
-                    this.ghostMode = this.preFrightMode || 'SCATTER';
-                    this.ghosts.forEach(g => g.setMode(this.ghostMode));
-                }
-            } else {
-                this.modeTimer += dt;
-                const cycle = this.modeTimer % 27;
-                const newMode = cycle < 7 ? 'SCATTER' : 'CHASE';
-                if (newMode !== this.ghostMode) {
-                    this.ghostMode = newMode;
-                    this.ghosts.forEach(g => g.setMode(newMode));
-                }
-            }
-
-            // In DEMO, handle Player AI
-            this.players.forEach(p => { 
-                if(!p.dead) {
-                    if (this.state === 'DEMO') p.updateAI();
-                    p.update(dt); 
-                }
-            });
-            this.ghosts.forEach(g => g.update(dt));
-
-            if(this.pellets.filter(p => p.active).length === 0) this.levelComplete();
-            if(this.players.filter(p => p.lives > 0).length === 0) {
-                 if(this.state === 'DEMO') this.resetGame();
-                 else this.gameOver();
-            }
-        }
-    }
-
-    activatePowerPellet() {
-        this.preFrightMode = (this.ghostMode === 'FRIGHTENED') ? this.preFrightMode : this.ghostMode;
-        this.ghostMode = 'FRIGHTENED';
-        this.frightenedTime = 6;
-        this.ghostCombo = 0;
-        this.ghosts.forEach(g => {
-            g.setMode('FRIGHTENED');
-            if(g.mode !== 'EATEN') g.dir = { x: -g.dir.x, z: -g.dir.z };
-        });
-    }
-
-    handleGhostEat(ghost, player) {
-        this.ghostCombo++;
-        player.addScore(200 * Math.pow(2, this.ghostCombo - 1));
-        ghost.setMode('EATEN');
-        this.audio.playEatGhost();
-    }
-
-    playerDied(player) {
-        player.lives--;
-        player.dead = true;
-        player.mesh.visible = false;
-        player.updateUI();
-        this.audio.playDeath();
-
-        if (this.players.every(p => p.dead || p.lives <= 0)) {
-            if(this.state === 'DEMO') {
-                setTimeout(() => this.resetGame(), 1000);
-            } else {
-                this.state = 'DYING';
-                setTimeout(() => {
-                    const anyLives = this.players.some(p => p.lives > 0);
-                    if (anyLives) {
-                        this.players.forEach(p => { if(p.lives > 0) { p.dead = false; p.mesh.visible = true; }});
-                        this.resetLevel();
-                    } else {
-                        this.gameOver();
-                    }
-                }, 2000);
-            }
-        }
-    }
-
-    levelComplete() {
-        // In Demo, just restart
-        if(this.state === 'DEMO') {
-             this.resetGame();
-             return;
-        }
-        this.state = 'READY';
-        setTimeout(() => {
-            this.level++;
-            if(this.mapStyle === 'RANDOM') this.buildMaze();
-            this.resetLevel();
-        }, 3000);
-    }
-
-    gameOver() {
-        this.state = 'GAMEOVER';
-        this.ui.title.style.display = 'block';
-        this.ui.mainText.innerText = "GAME OVER";
-        this.ui.subText.innerText = "PRESS SPACE TO RESTART";
-        this.ui.subText.style.display = 'block';
-        document.getElementById('mode-select').style.display = "none";
-    }
-
-    isWalkable(c, r, isGhost = false) {
-        if (r < 0 || r >= MAZE_H || c < 0 || c >= MAZE_W) {
-            if (r === 13) return true; 
-            return false;
-        }
-        const val = this.grid[r][c];
-        if (val === 1) return false;
-        if (isGhost) {
-            if (val === 5 || val === 4 || val === 9) return true; 
-        } else {
-            if (val === 4 || val === 5 || val === 9) return false;
-        }
-        return true;
-    }
-
-    getPixelForTile(col, row) {
-        const offsetX = (MAZE_W * TILE_SIZE) / 2;
-        const offsetZ = (MAZE_H * TILE_SIZE) / 2;
-        return {
-            x: col * TILE_SIZE - offsetX + (TILE_SIZE/2),
-            z: row * TILE_SIZE - offsetZ + (TILE_SIZE/2)
-        };
-    }
-}
-
-/**
- * BASE ACTOR
+ * --- BASE ACTOR CLASS ---
  */
 class Actor {
     constructor(game) {
@@ -813,22 +334,24 @@ class Actor {
             }
         }
 
-        const limit = (MAZE_W * TILE_SIZE) / 2 + TILE_SIZE;
+        // Tunnel Wrapping
+        const limit = (this.game.mapW * TILE_SIZE) / 2 + TILE_SIZE;
         if (this.pixelPos.x > limit) { this.pixelPos.x = -limit + 5; this.tilePos.col = 0; }
-        else if (this.pixelPos.x < -limit) { this.pixelPos.x = limit - 5; this.tilePos.col = MAZE_W - 1; }
+        else if (this.pixelPos.x < -limit) { this.pixelPos.x = limit - 5; this.tilePos.col = this.game.mapW - 1; }
 
-        const offsetX = (MAZE_W * TILE_SIZE) / 2;
-        const offsetZ = (MAZE_H * TILE_SIZE) / 2;
+        const offsetX = (this.game.mapW * TILE_SIZE) / 2;
+        const offsetZ = (this.game.mapH * TILE_SIZE) / 2;
         this.tilePos.col = Math.floor((this.pixelPos.x + offsetX) / TILE_SIZE);
         this.tilePos.row = Math.floor((this.pixelPos.z + offsetZ) / TILE_SIZE);
 
         this.mesh.position.set(this.pixelPos.x, 0, this.pixelPos.z);
+        
         return { reachedCenter, remainingDt: moveAmt > 0 ? moveAmt / this.speed : 0 };
     }
 }
 
 /**
- * GHOSTMAN
+ * --- PLAYER CLASS ---
  */
 class GhostMan extends Actor {
     constructor(game, id, color) {
@@ -860,11 +383,22 @@ class GhostMan extends Actor {
         this.dead = false;
         this.mesh.visible = true;
         this.body.rotation.z = 0;
-        if (this.game.mapStyle === 'RANDOM') {
-            this.setTile(this.id === 1 ? 1 : 26, 29);
-        } else {
-            this.setTile(this.id === 1 ? 13 : 14, 23);
+        
+        const cx = Math.floor(this.game.mapW/2);
+        const cy = Math.floor(this.game.mapH/2);
+        
+        let spawnR = cy + 5;
+        let spawnC = this.id === 1 ? cx - 1 : cx + 1;
+        
+        // Ensure spawn is within bounds
+        if(spawnR >= this.game.mapH) spawnR = this.game.mapH - 2;
+        if(spawnC >= this.game.mapW) spawnC = 1;
+        if(!this.game.isWalkable(spawnC, spawnR)) {
+             // Fallback search
+             spawnR = this.game.mapH - 2;
         }
+
+        this.setTile(spawnC, spawnR);
     }
 
     updateUI() {
@@ -886,10 +420,9 @@ class GhostMan extends Actor {
 
     // --- AI BOT LOGIC FOR DEMO ---
     updateAI() {
-        // Only think if we are at the center of a tile to make clean turns
-        if (this.dir !== NONE && this.game.getPixelForTile(this.tilePos.col, this.tilePos.row).x !== this.pixelPos.x) return;
+        const center = this.game.getPixelForTile(this.tilePos.col, this.tilePos.row);
+        if (this.dir !== NONE && Math.abs(center.x - this.pixelPos.x) > 0.5) return;
         
-        // 1. Safety Check: Where are the ghosts?
         const ghosts = this.game.ghosts.filter(g => g.mode !== 'EATEN');
         const dangerous = ghosts.filter(g => g.mode !== 'FRIGHTENED');
         const huntable = ghosts.filter(g => g.mode === 'FRIGHTENED');
@@ -897,27 +430,29 @@ class GhostMan extends Actor {
         const moves = [UP, DOWN, LEFT, RIGHT];
         const validMoves = moves.filter(d => this.game.isWalkable(this.tilePos.col + d.x, this.tilePos.row + d.z));
 
-        // Filter out suicide moves (immediate collision)
+        // Filter out moves that lead directly into a ghost
         const safeMoves = validMoves.filter(d => {
             const nx = this.tilePos.col + d.x;
             const ny = this.tilePos.row + d.z;
-            return !dangerous.some(g => Math.abs(g.tilePos.col - nx) + Math.abs(g.tilePos.row - ny) < 2);
+            return !dangerous.some(g => Math.abs(g.tilePos.col - nx) + Math.abs(g.tilePos.row - ny) < 3);
         });
 
-        const choices = safeMoves.length > 0 ? safeMoves : validMoves; // Panic if no safe moves
-
+        // If trapped, try any valid move
+        const choices = safeMoves.length > 0 ? safeMoves : validMoves; 
         if (choices.length === 0) return;
 
-        // BFS Helper
+        // Simple BFS Pathfinding
         const findPath = (goals) => {
             const queue = [{ c: this.tilePos.col, r: this.tilePos.row, firstMove: null }];
             const visited = new Set();
             visited.add(`${this.tilePos.col},${this.tilePos.row}`);
 
-            while(queue.length > 0) {
+            let iterations = 0;
+            // Limit search depth to prevent lag on larger custom maps
+            while(queue.length > 0 && iterations < 400) { 
+                iterations++;
                 const cur = queue.shift();
                 
-                // Check if goal
                 if (goals.some(g => g.c === cur.c && g.r === cur.r)) {
                     return cur.firstMove;
                 }
@@ -925,7 +460,10 @@ class GhostMan extends Actor {
                 for (let m of moves) {
                     const nc = cur.c + m.x;
                     const nr = cur.r + m.z;
-                    if (this.game.isWalkable(nc, nr) && !visited.has(`${nc},${nr}`)) {
+                    // Don't traverse through dangerous ghosts in pathfinding
+                    const unsafe = dangerous.some(g => Math.abs(g.tilePos.col - nc) + Math.abs(g.tilePos.row - nr) < 1);
+                    
+                    if (this.game.isWalkable(nc, nr) && !visited.has(`${nc},${nr}`) && !unsafe) {
                         visited.add(`${nc},${nr}`);
                         queue.push({ c: nc, r: nr, firstMove: cur.firstMove || m });
                     }
@@ -936,30 +474,34 @@ class GhostMan extends Actor {
 
         let targetMove = null;
 
-        // Priority 1: Hunt Blue Ghosts
+        // 1. Hunt Blue Ghosts
         if (huntable.length > 0) {
             const targets = huntable.map(g => ({ c: g.tilePos.col, r: g.tilePos.row }));
             targetMove = findPath(targets);
         }
 
-        // Priority 2: Get Pellets
+        // 2. Find Pellets if no ghosts to hunt
         if (!targetMove) {
-            // Optimization: Only search for pellets within radius or fallback to random
             const pellets = this.game.pellets.filter(p => p.active);
             if(pellets.length > 0) {
-                // Find nearest logic is implicitly handled by BFS layer order
-                // Just map pellets to simple coord objects
-                // To save perf, we might limit this, but map is small enough
-                const pTargets = pellets.map(p => ({c: p.x, r: p.z}));
+                // Find closest 5 pellets to save CPU
+                const pTargets = pellets
+                    .sort((a,b) => {
+                        const da = Math.abs(a.x - this.tilePos.col) + Math.abs(a.z - this.tilePos.row);
+                        const db = Math.abs(b.x - this.tilePos.col) + Math.abs(b.z - this.tilePos.row);
+                        return da - db;
+                    })
+                    .slice(0, 5)
+                    .map(p => ({c: p.x, r: p.z}));
                 targetMove = findPath(pTargets);
             }
         }
 
-        // Execution
+        // Execute Move
         if (targetMove && choices.includes(targetMove)) {
             this.nextDir = targetMove;
         } else {
-            // Random valid move if no path or path blocked
+            // Random valid move if no path found
             this.nextDir = choices[Math.floor(Math.random() * choices.length)];
         }
     }
@@ -967,7 +509,6 @@ class GhostMan extends Actor {
     update(dt) {
         if (this.dead) return;
 
-        // Animation
         if (this.dir !== NONE) {
             const t = Date.now() * 0.02;
             this.body.scale.set(1, 1 - (Math.sin(t)+1)*0.1, 1);
@@ -975,7 +516,6 @@ class GhostMan extends Actor {
 
         let input = NONE;
         
-        // 1. If DEMO, input is handled by updateAI setting nextDir directly
         if (!this.game.isDemo) {
             const k = this.game.keys;
             if (this.id === 1) {
@@ -989,30 +529,12 @@ class GhostMan extends Actor {
                 else if (k['a']) input = LEFT;
                 else if (k['d']) input = RIGHT;
             }
-
-            // Gamepad
-            const gpIndex = Object.keys(this.game.gamepadMap).find(key => this.game.gamepadMap[key] === this.id);
-            if (gpIndex !== undefined) {
-                const gps = navigator.getGamepads ? navigator.getGamepads() : [];
-                const gp = gps[gpIndex];
-                if (gp) {
-                    if (gp.axes[1] < -0.5) input = UP;
-                    else if (gp.axes[1] > 0.5) input = DOWN;
-                    else if (gp.axes[0] < -0.5) input = LEFT;
-                    else if (gp.axes[0] > 0.5) input = RIGHT;
-                    if (gp.buttons[12]?.pressed) input = UP;
-                    if (gp.buttons[13]?.pressed) input = DOWN;
-                    if (gp.buttons[14]?.pressed) input = LEFT;
-                    if (gp.buttons[15]?.pressed) input = RIGHT;
-                }
-            }
             if (input !== NONE) this.nextDir = input;
         }
 
         const result = this.drive(dt);
 
         if (result.reachedCenter || this.dir === NONE) {
-            // Turn?
             if (this.nextDir !== NONE) {
                 const nextC = this.tilePos.col + this.nextDir.x;
                 const nextR = this.tilePos.row + this.nextDir.z;
@@ -1026,12 +548,11 @@ class GhostMan extends Actor {
                 }
             }
 
-            // Continue?
             const nextC = this.tilePos.col + this.dir.x;
             const nextR = this.tilePos.row + this.dir.z;
             
             if (!this.game.isWalkable(nextC, nextR)) {
-                this.dir = NONE;
+                this.dir = NONE; 
                 const center = this.game.getPixelForTile(this.tilePos.col, this.tilePos.row);
                 this.pixelPos.x = center.x;
                 this.pixelPos.z = center.z;
@@ -1062,7 +583,7 @@ class GhostMan extends Actor {
 }
 
 /**
- * GHOST
+ * --- GHOST CLASS ---
  */
 class Ghost extends Actor {
     constructor(game, type, color) {
@@ -1082,12 +603,11 @@ class Ghost extends Actor {
         skirt.position.y = -2;
         this.body.add(skirt);
 
+        this.eyes = new THREE.Group();
         const eyeGeo = new THREE.SphereGeometry(1.2, 8, 8);
         const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
         const pupilGeo = new THREE.SphereGeometry(0.6, 8, 8);
         const pupilMat = new THREE.MeshBasicMaterial({ color: 0x0000dd });
-
-        this.eyes = new THREE.Group();
         const le = new THREE.Mesh(eyeGeo, eyeMat); le.position.set(-1.5, 2, 2.5);
         const re = new THREE.Mesh(eyeGeo, eyeMat); re.position.set(1.5, 2, 2.5);
         const lp = new THREE.Mesh(pupilGeo, pupilMat); lp.position.z = 1;
@@ -1102,20 +622,24 @@ class Ghost extends Actor {
     resetPosition() {
         this.setMode('SCATTER');
         this.dir = LEFT;
-        if(this.type === 'BLINKY') this.setTile(13, 11);
-        else if(this.type === 'PINKY') this.setTile(13, 13);
-        else if(this.type === 'INKY') this.setTile(11, 13);
-        else if(this.type === 'CLYDE') this.setTile(15, 13);
+        const cx = Math.floor(this.game.mapW/2);
+        const cy = Math.floor(this.game.mapH/2);
+        
+        // House Positions (Dynamic based on map center)
+        if(this.type === 'BLINKY') this.setTile(cx, cy - 2); 
+        else if(this.type === 'PINKY') this.setTile(cx, cy); 
+        else if(this.type === 'INKY') this.setTile(cx - 2, cy); 
+        else if(this.type === 'CLYDE') this.setTile(cx + 2, cy); 
     }
 
     setMode(m) {
         this.mode = m;
         if (m === 'FRIGHTENED') {
-            this.mat.color.setHex(0x0000ff);
+            this.mat.color.setHex(0x0000ff); 
             this.speed = SPEED_GHOST_FRIGHT;
         } else if (m === 'EATEN') {
-            this.mat.visible = false;
-            this.speed = 120;
+            this.mat.visible = false; 
+            this.speed = 120; 
         } else {
             this.mat.visible = true;
             this.mat.color.setHex(this.baseColor);
@@ -1124,7 +648,10 @@ class Ghost extends Actor {
     }
 
     getTarget() {
-        if (this.mode === 'EATEN') return { col: 13, row: 11 };
+        const cx = Math.floor(this.game.mapW/2);
+        const cy = Math.floor(this.game.mapH/2);
+        if (this.mode === 'EATEN') return { col: cx, row: cy - 2 };
+
         const targets = this.game.players.filter(p => !p.dead);
         if(!targets.length) return {col: this.tilePos.col, row: this.tilePos.row};
         
@@ -1139,10 +666,10 @@ class Ghost extends Actor {
         const ty = targetP.tilePos.row;
 
         if (this.mode === 'SCATTER') {
-             if (this.type === 'BLINKY') return { col: MAZE_W-2, row: 0 };
+             if (this.type === 'BLINKY') return { col: this.game.mapW-2, row: 0 };
              if (this.type === 'PINKY') return { col: 1, row: 0 };
-             if (this.type === 'INKY') return { col: MAZE_W-1, row: MAZE_H-1 };
-             if (this.type === 'CLYDE') return { col: 0, row: MAZE_H-1 };
+             if (this.type === 'INKY') return { col: this.game.mapW-1, row: this.game.mapH-1 };
+             if (this.type === 'CLYDE') return { col: 0, row: this.game.mapH-1 };
         }
         return { col: tx, row: ty };
     }
@@ -1151,9 +678,12 @@ class Ghost extends Actor {
         const result = this.drive(dt);
 
         if (result.reachedCenter) {
-            if (this.mode === 'EATEN' && Math.abs(this.tilePos.col - 13) < 2 && Math.abs(this.tilePos.row - 14) < 2) {
+            const cx = Math.floor(this.game.mapW/2);
+            const cy = Math.floor(this.game.mapH/2);
+
+            if (this.mode === 'EATEN' && Math.abs(this.tilePos.col - cx) < 2 && Math.abs(this.tilePos.row - (cy-2)) < 2) {
                 this.setMode('CHASE');
-                this.dir = UP;
+                this.dir = DOWN; 
                 return;
             }
 
@@ -1204,5 +734,682 @@ class Ghost extends Actor {
     }
 }
 
-// Start
+/**
+ * --- MAIN GAME ENGINE ---
+ */
+class Game {
+    constructor() {
+        this.scene = new THREE.Scene();
+        this.audio = new SoundManager();
+        
+        this.twoPlayerMode = false;
+        this.mapStyle = 'ORIGINAL';
+        this.isDemo = false; 
+        
+        // Custom Options
+        this.optionsOpen = false;
+        this.customConfig = {
+            width: 28,
+            height: 31,
+            algo: 'MIRRORED', // MIRRORED, PURE
+            color: 'CLASSIC' // CLASSIC, NEON, RED, MONO
+        };
+
+        this.mapW = 28;
+        this.mapH = 31;
+        
+        this.gamepadMap = {};
+        this.activeGamepads = new Set();
+        
+        this.walls = [];
+        this.pellets = [];
+        this.actors = [];
+        this.ghosts = [];
+        this.players = [];
+        this.grid = []; 
+
+        this.state = 'MENU';
+        this.level = 1;
+        this.modeTimer = 0;
+        this.ghostMode = 'SCATTER';
+        this.frightenedTime = 0;
+        this.ghostCombo = 0;
+
+        this.lastInputTime = Date.now();
+        this.lastFrameTime = 0;
+        this.accumulator = 0;
+        this.fixedStep = 1 / 60;
+
+        // UI References
+        this.ui = {
+            title: document.getElementById('center-message'),
+            mainText: document.getElementById('main-title'),
+            subText: document.getElementById('sub-message'),
+            demoText: document.getElementById('demo-countdown'),
+            p1Score: document.getElementById('score-p1'),
+            p2Score: document.getElementById('score-p2'),
+            p1Lives: document.getElementById('lives-p1'),
+            p2Lives: document.getElementById('lives-p2'),
+            btn1p: document.getElementById('btn-1p'),
+            btn2p: document.getElementById('btn-2p'),
+            btnStart: document.getElementById('btn-start-game'),
+            notify: document.getElementById('gamepad-notify'),
+            optionsMenu: document.getElementById('options-menu'),
+            // Option Elements
+            optWVal: document.getElementById('opt-w-val'),
+            optHVal: document.getElementById('opt-h-val'),
+            optAlgoBtn: document.getElementById('opt-algo-toggle'),
+            optColorBtn: document.getElementById('opt-color-toggle')
+        };
+
+        this.initThree();
+        this.setupOptionsListeners();
+        this.buildMaze();
+        this.setupInput();
+
+        requestAnimationFrame(this.loop.bind(this));
+    }
+
+    initThree() {
+        this.renderer = new THREE.WebGLRenderer({ 
+            canvas: document.getElementById('game-canvas'), 
+            antialias: true 
+        });
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setClearColor(0x050505);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        this.scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
+        dirLight.position.set(50, 100, 50);
+        this.scene.add(dirLight);
+
+        // Floor
+        this.floor = new THREE.Mesh(
+            new THREE.PlaneGeometry(1000, 1000), 
+            new THREE.MeshBasicMaterial({ color: 0x000000 })
+        );
+        this.floor.rotation.x = -Math.PI / 2;
+        this.floor.position.y = -5;
+        this.scene.add(this.floor);
+
+        this.updateCamera();
+
+        window.addEventListener('resize', () => {
+            this.updateCamera();
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    }
+
+    updateCamera() {
+        const maxDim = Math.max(this.mapW, this.mapH);
+        const frustumSize = maxDim * TILE_SIZE * 1.3; 
+        const aspect = window.innerWidth / window.innerHeight;
+
+        if(!this.camera) {
+            this.camera = new THREE.OrthographicCamera(
+                frustumSize * aspect / -2, frustumSize * aspect / 2,
+                frustumSize / 2, frustumSize / -2,
+                1, 2000
+            );
+        } else {
+            this.camera.left = frustumSize * aspect / -2;
+            this.camera.right = frustumSize * aspect / 2;
+            this.camera.top = frustumSize / 2;
+            this.camera.bottom = frustumSize / -2;
+            this.camera.updateProjectionMatrix();
+        }
+
+        this.camera.position.set(0, 400, 300); 
+        this.camera.lookAt(0, 0, 0);
+    }
+
+    setupOptionsListeners() {
+        const u = this.ui;
+        // Width
+        document.getElementById('opt-w-dec').onclick = () => {
+            this.customConfig.width = Math.max(20, this.customConfig.width - 2);
+            u.optWVal.innerText = this.customConfig.width;
+        };
+        document.getElementById('opt-w-inc').onclick = () => {
+            this.customConfig.width = Math.min(60, this.customConfig.width + 2);
+            u.optWVal.innerText = this.customConfig.width;
+        };
+        // Height
+        document.getElementById('opt-h-dec').onclick = () => {
+            this.customConfig.height = Math.max(20, this.customConfig.height - 2);
+            u.optHVal.innerText = this.customConfig.height;
+        };
+        document.getElementById('opt-h-inc').onclick = () => {
+            this.customConfig.height = Math.min(60, this.customConfig.height + 2);
+            u.optHVal.innerText = this.customConfig.height;
+        };
+        // Algo
+        u.optAlgoBtn.onclick = () => {
+            this.customConfig.algo = this.customConfig.algo === 'MIRRORED' ? 'PURE' : 'MIRRORED';
+            u.optAlgoBtn.innerText = this.customConfig.algo;
+        };
+        // Color
+        const themes = ['CLASSIC', 'NEON', 'RED', 'MONO'];
+        u.optColorBtn.onclick = () => {
+            let idx = themes.indexOf(this.customConfig.color);
+            idx = (idx + 1) % themes.length;
+            this.customConfig.color = themes[idx];
+            u.optColorBtn.innerText = this.customConfig.color;
+        };
+        // Close
+        document.getElementById('btn-close-options').onclick = () => this.toggleOptions();
+    }
+
+    toggleOptions() {
+        this.optionsOpen = !this.optionsOpen;
+        if(this.optionsOpen) {
+            this.ui.optionsMenu.classList.remove('hidden');
+            this.ui.title.style.display = 'none'; 
+        } else {
+            this.ui.optionsMenu.classList.add('hidden');
+            if(this.state === 'MENU') this.ui.title.style.display = 'block';
+            
+            // Set mode to custom if options changed
+            this.mapStyle = 'CUSTOM';
+            this.ui.subText.innerText = `MAP: CUSTOM (${this.customConfig.width}x${this.customConfig.height})`;
+        }
+    }
+
+    showNotification(msg) {
+        const div = document.createElement('div');
+        div.className = 'gp-toast';
+        div.innerText = msg;
+        this.ui.notify.appendChild(div);
+        setTimeout(() => div.remove(), 3000);
+    }
+
+    resetIdleTimer() {
+        this.lastInputTime = Date.now();
+        this.ui.demoText.classList.add('hidden');
+        if (this.state === 'DEMO') {
+            this.resetGame();
+        }
+    }
+
+    pollGamepads() {
+        const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+        let anyPressed = false;
+
+        for (let i = 0; i < gps.length; i++) {
+            const gp = gps[i];
+            if (gp) {
+                const pressed = gp.buttons.some((b, idx) => idx < 4 && b.pressed);
+                if (pressed) {
+                    anyPressed = true;
+                    if (!this.activeGamepads.has(gp.index)) {
+                        if (!Object.values(this.gamepadMap).includes(1)) {
+                            this.gamepadMap[gp.index] = 1;
+                            this.activeGamepads.add(gp.index);
+                            this.showNotification(`GAMEPAD ${gp.index} JOINED AS P1`);
+                        } else if (!Object.values(this.gamepadMap).includes(2)) {
+                            this.gamepadMap[gp.index] = 2;
+                            this.activeGamepads.add(gp.index);
+                            this.showNotification(`GAMEPAD ${gp.index} JOINED AS P2`);
+                            this.twoPlayerMode = true;
+                            this.updateMenuUI();
+                        }
+                    }
+                    if (this.state === 'MENU' && pressed && !this.optionsOpen) {
+                        this.resetIdleTimer();
+                        this.startGame(false);
+                    }
+                }
+            }
+        }
+        if (anyPressed) this.resetIdleTimer();
+    }
+
+    buildMaze() {
+        this.walls.forEach(w => this.scene.remove(w));
+        this.pellets.forEach(p => this.scene.remove(p.mesh));
+        this.walls = [];
+        this.pellets = [];
+        this.grid = [];
+        
+        let gridLayout = [];
+
+        // Determine Size and Logic
+        if (this.mapStyle === 'ORIGINAL') {
+            // Parse the restored original map
+            gridLayout = MAP_LAYOUT.map(row => row.split('').map(c => parseInt(c)));
+        } else if (this.mapStyle === 'RANDOM') {
+            gridLayout = MazeGenerator.generate(DEFAULT_W, DEFAULT_H, true);
+        } else if (this.mapStyle === 'CUSTOM') {
+            gridLayout = MazeGenerator.generate(this.customConfig.width, this.customConfig.height, this.customConfig.algo === 'MIRRORED');
+        }
+
+        // Dynamically set size based on generated/loaded grid to prevent crashes
+        this.mapH = gridLayout.length;
+        this.mapW = gridLayout[0].length;
+        this.grid = gridLayout;
+
+        // Determine Colors
+        let wallC = 0x2121de;
+        let wallE = 0x080890;
+        
+        if (this.mapStyle === 'CUSTOM') {
+             switch(this.customConfig.color) {
+                 case 'RED': wallC = 0xde2121; wallE = 0x500808; break;
+                 case 'NEON': wallC = 0x00ff00; wallE = 0x004000; break;
+                 case 'MONO': wallC = 0xaaaaaa; wallE = 0x222222; break;
+             }
+        } else if (this.mapStyle === 'RANDOM') {
+             wallC = Math.random() * 0xffffff;
+             wallE = 0x111111;
+        }
+
+        const wallMat = new THREE.MeshLambertMaterial({ color: wallC, emissive: wallE });
+        const pelletMat = new THREE.MeshLambertMaterial({ color: 0xffb8ae });
+        
+        const jointGeo = new THREE.CylinderGeometry(WALL_THICKNESS/2, WALL_THICKNESS/2, WALL_HEIGHT, 16);
+        const hConnGeo = new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, WALL_THICKNESS); 
+        const vConnGeo = new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, TILE_SIZE); 
+        const pelletGeo = new THREE.SphereGeometry(1.5, 6, 6);
+        const powerGeo = new THREE.SphereGeometry(3.5, 8, 8);
+
+        const offsetX = (this.mapW * TILE_SIZE) / 2;
+        const offsetZ = (this.mapH * TILE_SIZE) / 2;
+
+        for (let row = 0; row < this.mapH; row++) {
+            for (let col = 0; col < this.mapW; col++) {
+                const val = gridLayout[row][col];
+                
+                const x = col * TILE_SIZE - offsetX + (TILE_SIZE/2);
+                const z = row * TILE_SIZE - offsetZ + (TILE_SIZE/2);
+
+                if (val === 1) {
+                    const joint = new THREE.Mesh(jointGeo, wallMat);
+                    joint.position.set(x, 0, z);
+                    this.scene.add(joint);
+                    this.walls.push(joint);
+
+                    if (col < this.mapW - 1 && gridLayout[row][col + 1] === 1) {
+                        const conn = new THREE.Mesh(hConnGeo, wallMat);
+                        conn.position.set(x + TILE_SIZE/2, 0, z); 
+                        this.scene.add(conn);
+                        this.walls.push(conn);
+                    }
+                    if (row < this.mapH - 1 && gridLayout[row + 1][col] === 1) {
+                        const conn = new THREE.Mesh(vConnGeo, wallMat);
+                        conn.position.set(x, 0, z + TILE_SIZE/2);
+                        this.scene.add(conn);
+                        this.walls.push(conn);
+                    }
+                } 
+                else if (val === 2) {
+                    const p = new THREE.Mesh(pelletGeo, pelletMat);
+                    p.position.set(x, 0, z);
+                    this.scene.add(p);
+                    this.pellets.push({ mesh: p, type: 'normal', x: col, z: row, active: true });
+                }
+                else if (val === 3) {
+                    const p = new THREE.Mesh(powerGeo, pelletMat);
+                    p.position.set(x, 0, z);
+                    this.scene.add(p);
+                    this.pellets.push({ mesh: p, type: 'power', x: col, z: row, active: true });
+                }
+                else if (val === 5) {
+                    const doorGeo = new THREE.BoxGeometry(TILE_SIZE, 1, 2);
+                    const doorMat = new THREE.MeshBasicMaterial({ color: 0xffb8ff, transparent: true, opacity: 0.5 });
+                    const door = new THREE.Mesh(doorGeo, doorMat);
+                    door.position.set(x, 0, z);
+                    this.scene.add(door);
+                }
+            }
+        }
+        
+        this.floor.geometry.dispose();
+        this.floor.geometry = new THREE.PlaneGeometry(this.mapW * TILE_SIZE + 100, this.mapH * TILE_SIZE + 100);
+        
+        this.updateCamera();
+    }
+
+    setupInput() {
+        this.keys = {};
+        window.addEventListener('keydown', (e) => {
+            if (this.optionsOpen) return; 
+            this.resetIdleTimer();
+            
+            if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+            this.keys[e.key] = true;
+
+            if(this.state === 'MENU') {
+                if(e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'w' || e.key === 's') {
+                    this.twoPlayerMode = !this.twoPlayerMode;
+                    this.updateMenuUI();
+                }
+                if(e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'a' || e.key === 'd') {
+                     if(this.mapStyle === 'ORIGINAL') this.mapStyle = 'RANDOM';
+                     else if(this.mapStyle === 'RANDOM') this.mapStyle = 'CUSTOM';
+                     else this.mapStyle = 'ORIGINAL';
+                     
+                     let desc = this.mapStyle;
+                     if(this.mapStyle === 'CUSTOM') desc += ` (${this.customConfig.width}x${this.customConfig.height})`;
+                     this.ui.subText.innerText = `MAP: ${desc}`;
+                }
+                if(e.key.toLowerCase() === 'o') {
+                    this.toggleOptions();
+                }
+                if(e.key === ' ' || e.key === 'Enter') this.startGame(false);
+            }
+            if(this.state === 'GAMEOVER' && (e.key === ' ' || e.key === 'Enter')) {
+                this.resetGame();
+            }
+        });
+        window.addEventListener('keyup', (e) => this.keys[e.key] = false);
+
+        this.ui.btn1p.addEventListener('click', () => { this.twoPlayerMode = false; this.updateMenuUI(); });
+        this.ui.btn2p.addEventListener('click', () => { this.twoPlayerMode = true; this.updateMenuUI(); });
+        this.ui.btnStart.addEventListener('click', () => { this.startGame(false); });
+    }
+
+    updateMenuUI() {
+        if(this.twoPlayerMode) {
+            this.ui.btn1p.classList.remove('selected');
+            this.ui.btn2p.classList.add('selected');
+        } else {
+            this.ui.btn1p.classList.add('selected');
+            this.ui.btn2p.classList.remove('selected');
+        }
+    }
+
+    checkDemoTrigger() {
+        if(this.state !== 'MENU' || this.optionsOpen) return;
+        
+        const idleTime = (Date.now() - this.lastInputTime) / 1000;
+        const timeLeft = Math.ceil(4.0 - idleTime);
+
+        if (timeLeft <= 3 && timeLeft > 0) {
+            this.ui.demoText.classList.remove('hidden');
+            this.ui.demoText.innerText = `DEMO IN ${timeLeft}`;
+        } else if (timeLeft > 3) {
+            this.ui.demoText.classList.add('hidden');
+        }
+
+        if (idleTime >= 4.0) {
+            this.startGame(true); 
+        }
+    }
+
+    createActors() {
+        this.actors.forEach(a => this.scene.remove(a.mesh));
+        this.players = [];
+        this.ghosts = [];
+        this.actors = [];
+
+        const p1 = new GhostMan(this, 1, 0xffff00);
+        this.players.push(p1);
+
+        if (this.twoPlayerMode && !this.isDemo) {
+            const p2 = new GhostMan(this, 2, 0xffb8ff); 
+            this.players.push(p2);
+        }
+
+        const gColors = [0xff0000, 0xffb8ff, 0x00ffff, 0xffb852];
+        const gTypes = ['BLINKY', 'PINKY', 'INKY', 'CLYDE'];
+        
+        gTypes.forEach((type, i) => {
+            const g = new Ghost(this, type, gColors[i]);
+            this.ghosts.push(g);
+        });
+
+        this.actors = [...this.players, ...this.ghosts];
+    }
+
+    resetGame() {
+        this.state = 'MENU';
+        this.isDemo = false;
+        this.ui.title.style.display = 'block';
+        this.ui.mainText.innerText = "GhostMan 3D";
+        
+        let desc = this.mapStyle;
+        if(this.mapStyle === 'CUSTOM') desc += ` (${this.customConfig.width}x${this.customConfig.height})`;
+        this.ui.subText.innerText = `MAP: ${desc}`;
+        
+        this.ui.subText.style.display = "block";
+        this.ui.demoText.classList.add('hidden');
+        document.getElementById('mode-select').style.display = "flex";
+        this.ui.btnStart.style.display = 'inline-block';
+        this.level = 1;
+        this.lastInputTime = Date.now();
+        
+        this.gamepadMap = {};
+        this.activeGamepads.clear();
+        this.twoPlayerMode = false;
+        this.updateMenuUI();
+    }
+
+    startGame(isDemo = false) {
+        if(this.optionsOpen) return;
+        this.isDemo = isDemo;
+        this.state = isDemo ? 'DEMO' : 'PLAYING';
+        
+        if(!isDemo) this.audio.tryInit();
+        this.ui.title.style.display = 'none';
+
+        if(this.mapStyle !== 'ORIGINAL' || this.level === 1) this.buildMaze();
+
+        this.createActors();
+        this.resetLevel();
+        
+        if(!isDemo) this.audio.playIntro();
+        
+        this.players.forEach(p => {
+            p.score = 0;
+            p.lives = 3;
+            p.updateUI();
+            if(isDemo) p.speed = SPEED_DEMO_BOT;
+        });
+
+        if (isDemo) {
+            this.ui.mainText.innerText = "DEMO MODE";
+            this.ui.subText.innerText = "PRESS ANY KEY";
+            this.ui.title.style.display = 'block';
+            this.ui.title.style.background = 'transparent';
+            this.ui.title.style.border = 'none';
+            this.ui.title.style.boxShadow = 'none';
+            this.ui.btnStart.style.display = 'none';
+            setTimeout(() => { 
+                if(this.state === 'DEMO') this.ui.title.style.display = 'none'; 
+            }, 2000);
+        }
+    }
+
+    resetLevel() {
+        this.players.forEach(p => p.resetPosition());
+        this.ghosts.forEach(g => g.resetPosition());
+        
+        if (!this.isDemo) {
+            this.state = 'READY';
+            this.ui.title.style.display = 'block';
+            this.ui.title.style.background = 'transparent';
+            this.ui.title.style.border = 'none';
+            this.ui.title.style.boxShadow = 'none';
+            this.ui.mainText.innerText = "READY!";
+            this.ui.subText.style.display = 'none';
+        } else {
+            this.state = 'DEMO';
+        }
+        
+        document.getElementById('mode-select').style.display = "none";
+        this.ui.btnStart.style.display = 'none';
+
+        if (!this.isDemo) {
+            setTimeout(() => {
+                if(this.state !== 'GAMEOVER') {
+                    this.ui.title.style.display = 'none';
+                    this.ui.title.style.background = 'rgba(0,0,0,0.9)';
+                    this.ui.title.style.border = '4px double var(--neon-blue)';
+                    this.ui.title.style.boxShadow = '0 0 20px var(--neon-blue)';
+                    this.state = 'PLAYING';
+                }
+            }, 2000);
+        }
+    }
+
+    loop(time) {
+        requestAnimationFrame(this.loop.bind(this));
+
+        if(this.state === 'MENU') {
+            this.pollGamepads();
+            this.checkDemoTrigger();
+        } else if (this.state === 'DEMO') {
+            this.pollGamepads();
+        }
+        
+        const seconds = time * 0.001;
+        if (this.lastFrameTime === 0) {
+            this.lastFrameTime = seconds;
+            return;
+        }
+
+        let frameTime = seconds - this.lastFrameTime;
+        this.lastFrameTime = seconds;
+        if (frameTime > 0.25) frameTime = 0.25;
+
+        this.accumulator += frameTime;
+
+        while (this.accumulator >= this.fixedStep) {
+            this.updatePhysics(this.fixedStep);
+            this.accumulator -= this.fixedStep;
+        }
+
+        this.renderer.render(this.scene, this.camera);
+    }
+
+    updatePhysics(dt) {
+        if (this.state === 'PLAYING' || this.state === 'DEMO') {
+            if (this.frightenedTime > 0) {
+                this.frightenedTime -= dt;
+                if (this.frightenedTime <= 0) {
+                    this.ghostMode = this.preFrightMode || 'SCATTER';
+                    this.ghosts.forEach(g => g.setMode(this.ghostMode));
+                }
+            } else {
+                this.modeTimer += dt;
+                const cycle = this.modeTimer % 27; 
+                const newMode = cycle < 7 ? 'SCATTER' : 'CHASE';
+                if (newMode !== this.ghostMode) {
+                    this.ghostMode = newMode;
+                    this.ghosts.forEach(g => g.setMode(newMode));
+                }
+            }
+
+            this.players.forEach(p => { 
+                if(!p.dead) {
+                    if (this.state === 'DEMO') p.updateAI();
+                    p.update(dt); 
+                }
+            });
+            this.ghosts.forEach(g => g.update(dt));
+
+            if(this.pellets.filter(p => p.active).length === 0) this.levelComplete();
+            
+            if(this.players.filter(p => p.lives > 0).length === 0) {
+                 if(this.state === 'DEMO') this.resetGame();
+                 else this.gameOver();
+            }
+        }
+    }
+
+    activatePowerPellet() {
+        this.preFrightMode = (this.ghostMode === 'FRIGHTENED') ? this.preFrightMode : this.ghostMode;
+        this.ghostMode = 'FRIGHTENED';
+        this.frightenedTime = 6;
+        this.ghostCombo = 0;
+        this.ghosts.forEach(g => {
+            g.setMode('FRIGHTENED');
+            if(g.mode !== 'EATEN') g.dir = { x: -g.dir.x, z: -g.dir.z };
+        });
+    }
+
+    handleGhostEat(ghost, player) {
+        this.ghostCombo++;
+        player.addScore(200 * Math.pow(2, this.ghostCombo - 1));
+        ghost.setMode('EATEN');
+        this.audio.playEatGhost();
+    }
+
+    playerDied(player) {
+        player.lives--;
+        player.dead = true;
+        player.mesh.visible = false;
+        player.updateUI();
+        this.audio.playDeath();
+
+        if (this.players.every(p => p.dead || p.lives <= 0)) {
+            if(this.state === 'DEMO') {
+                setTimeout(() => this.resetGame(), 1000);
+            } else {
+                this.state = 'DYING';
+                setTimeout(() => {
+                    const anyLives = this.players.some(p => p.lives > 0);
+                    if (anyLives) {
+                        this.players.forEach(p => { if(p.lives > 0) { p.dead = false; p.mesh.visible = true; }});
+                        this.resetLevel();
+                    } else {
+                        this.gameOver();
+                    }
+                }, 2000);
+            }
+        }
+    }
+
+    levelComplete() {
+        if(this.state === 'DEMO') {
+             this.resetGame();
+             return;
+        }
+        this.state = 'READY';
+        setTimeout(() => {
+            this.level++;
+            if(this.mapStyle !== 'ORIGINAL') this.buildMaze();
+            this.resetLevel();
+        }, 3000);
+    }
+
+    gameOver() {
+        this.state = 'GAMEOVER';
+        this.ui.title.style.display = 'block';
+        this.ui.mainText.innerText = "GAME OVER";
+        this.ui.subText.innerText = "PRESS SPACE TO RESTART";
+        this.ui.subText.style.display = 'block';
+        document.getElementById('mode-select').style.display = "none";
+        this.ui.btnStart.style.display = 'none';
+    }
+
+    isWalkable(c, r, isGhost = false) {
+        if (r < 0 || r >= this.mapH || c < 0 || c >= this.mapW) {
+            // Check for Tunnel row (approx 45% down)
+            const tunnelY = Math.floor(this.mapH * 0.45);
+            if (r === tunnelY) return true; 
+            if (this.mapStyle === 'ORIGINAL' && r === 13) return true;
+            return false;
+        }
+        const val = this.grid[r][c];
+        if (val === 1) return false; 
+        if (isGhost) {
+            if (val === 5 || val === 4 || val === 9) return true; 
+        } else {
+            if (val === 4 || val === 5 || val === 9) return false; 
+        }
+        return true;
+    }
+
+    getPixelForTile(col, row) {
+        const offsetX = (this.mapW * TILE_SIZE) / 2;
+        const offsetZ = (this.mapH * TILE_SIZE) / 2;
+        return {
+            x: col * TILE_SIZE - offsetX + (TILE_SIZE/2),
+            z: row * TILE_SIZE - offsetZ + (TILE_SIZE/2)
+        };
+    }
+}
+
 new Game();
