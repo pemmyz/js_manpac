@@ -189,9 +189,33 @@ class MazeGenerator {
             }
         }
 
-        // Power Pellets
-        [ {c:1, r:1}, {c:1, r:h-2}, {c:w-2, r:1}, {c:w-2, r:h-2} ].forEach(p => {
-             if(grid[p.r] && grid[p.r][p.c] !== 1) grid[p.r][p.c] = 3;
+        // Power Pellets (Modified: 4 Corners + 1 Middle)
+        const pellets = [ 
+            {c:1, r:1},         // Top Left
+            {c:1, r:h-2},       // Bottom Left
+            {c:w-2, r:1},       // Top Right
+            {c:w-2, r:h-2},     // Bottom Right
+            {c:cx, r: houseY-4} // Middle (Above House)
+        ];
+
+        pellets.forEach(p => {
+             // Boundary Check
+             if(p.r > 0 && p.r < h-1 && p.c > 0 && p.c < w-1) {
+                 // Force clear wall if generated there to ensure pellet exists
+                 if(grid[p.r][p.c] === 1) grid[p.r][p.c] = 0;
+                 // Set Power Pellet
+                 grid[p.r][p.c] = 3;
+                 
+                 // If mirrored, ensure symmetric clear, but pellet set handles symmetry via 'setCell' logic mostly, 
+                 // though here we are accessing grid directly.
+                 // The 'setCell' helper was used earlier. Here we need to ensure the middle one isn't duplicated if odd width.
+                 if(mirrored && p.c !== w-1-p.c) {
+                     if(grid[p.r][w-1-p.c] === 1) grid[p.r][w-1-p.c] = 0;
+                     // We don't need to force a pellet on the mirror side because 
+                     // we explicitly added corners which are symmetric pairs in the array above.
+                     // The middle one is usually unique.
+                 }
+             }
         });
 
         // Ensure Spawn is empty inside house
