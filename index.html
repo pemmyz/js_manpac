@@ -56,10 +56,14 @@
                 </div>
 
                 <button id="btn-start-game" class="action-btn">START GAME</button>
+                
+                <!-- Added Help Button -->
+                <button id="btn-open-help" class="action-btn small-btn">HELP / INSTRUCTIONS</button>
 
                 <div class="controls-hint">
                     <p>ARROWS / WASD to Move</p>
-                    <p>Press 'O' for Options / Custom Map</p>
+                    <p>Press 'O' for Options</p>
+                    <p>Press 'H' for Help</p>
                 </div>
             </div>
 
@@ -91,6 +95,47 @@
                     <button id="opt-color-toggle">CLASSIC</button>
                 </div>
                 <button id="btn-close-options" class="action-btn">APPLY & CLOSE</button>
+            </div>
+
+            <!-- Help Menu (New) -->
+            <div id="help-menu" class="hidden">
+                <h2>INSTRUCTIONS</h2>
+                <div class="help-content">
+                    
+                    <div class="help-section">
+                        <h3>CONTROLS</h3>
+                        <ul>
+                            <li><span class="key">P1</span> Arrow Keys</li>
+                            <li><span class="key">P2</span> W A S D</li>
+                            <li><span class="key">MENU</span> Arrows/WASD + Enter</li>
+                            <li><span class="key">TOGGLE</span> 'H' for Help, 'O' for Options</li>
+                        </ul>
+                    </div>
+
+                    <div class="help-section">
+                        <h3>FEATURES</h3>
+                        <ul>
+                            <li>1 Player & 2 Player Shared Screen</li>
+                            <li>Classic Ghost AI (Scatter, Chase, Frightened)</li>
+                            <li>Procedural 3D Maze Generation</li>
+                            <li>Synthesized Web Audio</li>
+                        </ul>
+                    </div>
+
+                    <div class="help-section">
+                        <h3>GAMEPLAY</h3>
+                        <p>Eat all pellets to advance. Avoid ghosts unless they are blue (Frightened). Power pellets turn ghosts vulnerable for a short time.</p>
+                        <p>In 2-player mode, ghosts hunt the nearest player.</p>
+                    </div>
+
+                    <div class="help-section">
+                        <h3>ABOUT</h3>
+                        <p>A browser-based 3D arcade game built with Three.js (ES Modules).</p>
+                        <p>Tech: Three.js r160, Web Audio API.</p>
+                        <p class="license">MIT License. Fan-made project.</p>
+                    </div>
+                </div>
+                <button id="btn-close-help" class="action-btn">CLOSE</button>
             </div>
 
         </div>

@@ -206,14 +206,9 @@ class MazeGenerator {
                  // Set Power Pellet
                  grid[p.r][p.c] = 3;
                  
-                 // If mirrored, ensure symmetric clear, but pellet set handles symmetry via 'setCell' logic mostly, 
-                 // though here we are accessing grid directly.
-                 // The 'setCell' helper was used earlier. Here we need to ensure the middle one isn't duplicated if odd width.
+                 // If mirrored, ensure symmetric clear
                  if(mirrored && p.c !== w-1-p.c) {
                      if(grid[p.r][w-1-p.c] === 1) grid[p.r][w-1-p.c] = 0;
-                     // We don't need to force a pellet on the mirror side because 
-                     // we explicitly added corners which are symmetric pairs in the array above.
-                     // The middle one is usually unique.
                  }
              }
         });
@@ -440,42 +435,34 @@ class GhostMan extends Actor {
         if(this.score > (parseInt(hs.innerText)||0)) hs.innerText = this.score;
     }
 
-    // --- REVISED AI BOT LOGIC FOR DEMO ---
     updateAI() {
         // Only think if we are at the center of a tile to make clean turns
         const center = this.game.getPixelForTile(this.tilePos.col, this.tilePos.row);
         if (this.dir !== NONE && Math.abs(center.x - this.pixelPos.x) > 1) return;
         if (this.dir !== NONE && Math.abs(center.z - this.pixelPos.z) > 1) return;
         
-        // 1. Analyze Environment
         const ghosts = this.game.ghosts.filter(g => g.mode !== 'EATEN');
         const dangerous = ghosts.filter(g => g.mode !== 'FRIGHTENED');
         const huntable = ghosts.filter(g => g.mode === 'FRIGHTENED');
         const powerPellets = this.game.pellets.filter(p => p.active && p.type === 'power');
 
-        // 2. Determine Valid Immediate Moves
         const moves = [UP, DOWN, LEFT, RIGHT];
         const validMoves = moves.filter(d => this.game.isWalkable(this.tilePos.col + d.x, this.tilePos.row + d.z));
 
-        // 3. Safety Filter (Filter out immediate suicide)
         const safeMoves = validMoves.filter(d => {
             const nx = this.tilePos.col + d.x;
             const ny = this.tilePos.row + d.z;
             return !dangerous.some(g => Math.abs(g.tilePos.col - nx) + Math.abs(g.tilePos.row - ny) < 2);
         });
 
-        // Use safe moves if available, else panic with any valid move
         const candidates = safeMoves.length > 0 ? safeMoves : validMoves;
         if (candidates.length === 0) return;
 
-        // Helper: BFS Pathfinding
-        // allowRisk: if false, treats tiles near dangerous ghosts as walls (ensures "path is clear")
         const getBestMove = (targets, allowRisk) => {
             const queue = [{ c: this.tilePos.col, r: this.tilePos.row, firstMove: null }];
             const visited = new Set();
             visited.add(`${this.tilePos.col},${this.tilePos.row}`);
 
-            // If not allowing risk, block out dangerous ghost areas in the search
             if (!allowRisk) {
                 dangerous.forEach(g => {
                     visited.add(`${g.tilePos.col},${g.tilePos.row}`);
@@ -485,12 +472,9 @@ class GhostMan extends Actor {
 
             while(queue.length > 0) {
                 const cur = queue.shift();
-
-                // Check if current tile is a target
                 if (targets.some(g => g.c === cur.c && g.r === cur.r)) {
                     return cur.firstMove;
                 }
-
                 for (let m of moves) {
                     const nc = cur.c + m.x;
                     const nr = cur.r + m.z;
@@ -505,21 +489,17 @@ class GhostMan extends Actor {
 
         let targetMove = null;
 
-        // PRIORITY 1: Hunt Blue Ghosts (Allow risk because we want to eat them)
         if (huntable.length > 0) {
             const targets = huntable.map(g => ({ c: g.tilePos.col, r: g.tilePos.row }));
             targetMove = getBestMove(targets, true);
         }
 
-        // PRIORITY 2: Go for Power Pellet (Only if path is clear of dangerous ghosts)
         if (!targetMove && powerPellets.length > 0) {
             const targets = powerPellets.map(p => ({c: p.x, r: p.z}));
-            targetMove = getBestMove(targets, false); // Strict safety
+            targetMove = getBestMove(targets, false); 
         }
 
-        // PRIORITY 3: Normal Pellets (Only if path is clear)
         if (!targetMove) {
-            // Optimization: Only search a few close pellets to save CPU
             const pellets = this.game.pellets.filter(p => p.active);
             const sortedPellets = pellets.sort((a,b) => {
                 const da = Math.abs(a.x - this.tilePos.col) + Math.abs(a.z - this.tilePos.row);
@@ -533,30 +513,20 @@ class GhostMan extends Actor {
             }
         }
 
-        // EXECUTION
         if (targetMove && candidates.includes(targetMove)) {
             this.nextDir = targetMove;
         } else {
-            // BLOCKED / EVASIVE MANEUVER
-            // If we are here, either there are no targets, or the path to them is blocked by a ghost.
-            // We must take a different direction to maximize distance from threats.
-            
             if (dangerous.length > 0) {
                 let bestEscape = candidates[0];
                 let maxDist = -1;
-
                 candidates.forEach(m => {
                     const nx = this.tilePos.col + m.x;
                     const ny = this.tilePos.row + m.z;
-                    
-                    // Calculate distance to nearest dangerous ghost for this move candidate
                     let minGhostDist = 9999;
                     dangerous.forEach(g => {
                         const dist = Math.abs(g.tilePos.col - nx) + Math.abs(g.tilePos.row - ny);
                         if(dist < minGhostDist) minGhostDist = dist;
                     });
-
-                    // Choose move that keeps us furthest from danger
                     if(minGhostDist > maxDist) {
                         maxDist = minGhostDist;
                         bestEscape = m;
@@ -564,7 +534,6 @@ class GhostMan extends Actor {
                 });
                 this.nextDir = bestEscape;
             } else {
-                // If safe and no targets (rare), just wander randomly
                 this.nextDir = candidates[Math.floor(Math.random() * candidates.length)];
             }
         }
@@ -812,6 +781,8 @@ class Game {
         
         // Custom Options
         this.optionsOpen = false;
+        this.helpOpen = false; // HELP STATE
+        
         this.customConfig = {
             width: 28,
             height: 31,
@@ -858,12 +829,16 @@ class Game {
             btn2p: document.getElementById('btn-2p'),
             btnStart: document.getElementById('btn-start-game'),
             notify: document.getElementById('gamepad-notify'),
+            // Options UI
             optionsMenu: document.getElementById('options-menu'),
-            // Option Elements
             optWVal: document.getElementById('opt-w-val'),
             optHVal: document.getElementById('opt-h-val'),
             optAlgoBtn: document.getElementById('opt-algo-toggle'),
-            optColorBtn: document.getElementById('opt-color-toggle')
+            optColorBtn: document.getElementById('opt-color-toggle'),
+            // Help UI
+            helpMenu: document.getElementById('help-menu'),
+            btnOpenHelp: document.getElementById('btn-open-help'),
+            btnCloseHelp: document.getElementById('btn-close-help')
         };
 
         this.initThree();
@@ -961,11 +936,13 @@ class Game {
             this.customConfig.color = themes[idx];
             u.optColorBtn.innerText = this.customConfig.color;
         };
-        // Close
+        // Close Options
         document.getElementById('btn-close-options').onclick = () => this.toggleOptions();
     }
 
     toggleOptions() {
+        if(this.helpOpen) this.toggleHelp(); // Close help if open
+
         this.optionsOpen = !this.optionsOpen;
         if(this.optionsOpen) {
             this.ui.optionsMenu.classList.remove('hidden');
@@ -977,6 +954,19 @@ class Game {
             // Set mode to custom if options changed
             this.mapStyle = 'CUSTOM';
             this.ui.subText.innerText = `MAP: CUSTOM (${this.customConfig.width}x${this.customConfig.height})`;
+        }
+    }
+
+    toggleHelp() {
+        if(this.optionsOpen) this.toggleOptions(); // Close options if open
+
+        this.helpOpen = !this.helpOpen;
+        if(this.helpOpen) {
+            this.ui.helpMenu.classList.remove('hidden');
+            this.ui.title.style.display = 'none';
+        } else {
+            this.ui.helpMenu.classList.add('hidden');
+            if(this.state === 'MENU') this.ui.title.style.display = 'block';
         }
     }
 
@@ -1019,7 +1009,7 @@ class Game {
                             this.updateMenuUI();
                         }
                     }
-                    if (this.state === 'MENU' && pressed && !this.optionsOpen) {
+                    if (this.state === 'MENU' && pressed && !this.optionsOpen && !this.helpOpen) {
                         this.resetIdleTimer();
                         this.startGame(false);
                     }
@@ -1137,7 +1127,10 @@ class Game {
     setupInput() {
         this.keys = {};
         window.addEventListener('keydown', (e) => {
-            if (this.optionsOpen) return; 
+            // Block input if options or help are open
+            if (this.optionsOpen && e.key.toLowerCase() !== 'o') return;
+            if (this.helpOpen && e.key.toLowerCase() !== 'h') return;
+
             this.resetIdleTimer();
             
             if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
@@ -1160,7 +1153,13 @@ class Game {
                 if(e.key.toLowerCase() === 'o') {
                     this.toggleOptions();
                 }
-                if(e.key === ' ' || e.key === 'Enter') this.startGame(false);
+                if(e.key.toLowerCase() === 'h') {
+                    this.toggleHelp();
+                }
+                // Only start if menus are closed
+                if((e.key === ' ' || e.key === 'Enter') && !this.optionsOpen && !this.helpOpen) {
+                    this.startGame(false);
+                }
             }
             if(this.state === 'GAMEOVER' && (e.key === ' ' || e.key === 'Enter')) {
                 this.resetGame();
@@ -1171,6 +1170,10 @@ class Game {
         this.ui.btn1p.addEventListener('click', () => { this.twoPlayerMode = false; this.updateMenuUI(); });
         this.ui.btn2p.addEventListener('click', () => { this.twoPlayerMode = true; this.updateMenuUI(); });
         this.ui.btnStart.addEventListener('click', () => { this.startGame(false); });
+        
+        // Help Buttons
+        this.ui.btnOpenHelp.addEventListener('click', () => this.toggleHelp());
+        this.ui.btnCloseHelp.addEventListener('click', () => this.toggleHelp());
     }
 
     updateMenuUI() {
@@ -1184,7 +1187,7 @@ class Game {
     }
 
     checkDemoTrigger() {
-        if(this.state !== 'MENU' || this.optionsOpen) return;
+        if(this.state !== 'MENU' || this.optionsOpen || this.helpOpen) return;
         
         const idleTime = (Date.now() - this.lastInputTime) / 1000;
         const timeLeft = Math.ceil(4.0 - idleTime);
@@ -1240,6 +1243,8 @@ class Game {
         this.ui.demoText.classList.add('hidden');
         document.getElementById('mode-select').style.display = "flex";
         this.ui.btnStart.style.display = 'inline-block';
+        this.ui.btnOpenHelp.style.display = 'inline-block';
+
         this.level = 1;
         this.lastInputTime = Date.now();
         
@@ -1250,7 +1255,7 @@ class Game {
     }
 
     startGame(isDemo = false) {
-        if(this.optionsOpen) return;
+        if(this.optionsOpen || this.helpOpen) return;
         this.isDemo = isDemo;
         this.state = isDemo ? 'DEMO' : 'PLAYING';
         
@@ -1279,6 +1284,7 @@ class Game {
             this.ui.title.style.border = 'none';
             this.ui.title.style.boxShadow = 'none';
             this.ui.btnStart.style.display = 'none';
+            this.ui.btnOpenHelp.style.display = 'none';
             setTimeout(() => { 
                 if(this.state === 'DEMO') this.ui.title.style.display = 'none'; 
             }, 2000);
@@ -1303,6 +1309,7 @@ class Game {
         
         document.getElementById('mode-select').style.display = "none";
         this.ui.btnStart.style.display = 'none';
+        this.ui.btnOpenHelp.style.display = 'none';
 
         if (!this.isDemo) {
             setTimeout(() => {
@@ -1446,6 +1453,7 @@ class Game {
         this.ui.subText.style.display = 'block';
         document.getElementById('mode-select').style.display = "none";
         this.ui.btnStart.style.display = 'none';
+        this.ui.btnOpenHelp.style.display = 'none';
     }
 
     isWalkable(c, r, isGhost = false) {
