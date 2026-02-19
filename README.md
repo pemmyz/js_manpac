@@ -7,6 +7,11 @@ A browser-based **3D GhostMan** game built with **Three.js (ES Modules)**, featu
 Inspired by the original arcade game, this project recreates the maze, pellets, ghosts, modes (Scatter / Chase / Frightened), and scoring, while presenting everything in a lightweight 3D style.
 
 ---
+## Screenshots
+
+### Game
+![Game 1](screenshots/game_1.png)
+
 
 ## Features
 
