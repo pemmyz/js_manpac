@@ -1233,7 +1233,7 @@ class Game {
         this.state = 'MENU';
         this.isDemo = false;
         this.ui.title.style.display = 'block';
-        this.ui.mainText.innerText = "GhostMan 3D";
+        this.ui.mainText.innerText = "GhostMan 2.5D";
         
         let desc = this.mapStyle;
         if(this.mapStyle === 'CUSTOM') desc += ` (${this.customConfig.width}x${this.customConfig.height})`;
