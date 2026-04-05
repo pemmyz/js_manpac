@@ -1,10 +1,10 @@
 # js_manpac
 
-# 3D GhostMan: 2-Player Arcade Edition
+# 2.5D GhostMan: 2-Player Arcade Edition
 
-A browser-based **3D GhostMan** game built with **Three.js (ES Modules)**, featuring an isometric view, classic arcade mechanics, synthesized audio, and optional **2-player shared-screen gameplay**.
+A browser-based **2.5D GhostMan** game built with **Three.js (ES Modules)**, featuring an isometric view, classic arcade mechanics, synthesized audio, and optional **2-player shared-screen gameplay**.
 
-Inspired by the original arcade game, this project recreates the maze, pellets, ghosts, modes (Scatter / Chase / Frightened), and scoring, while presenting everything in a lightweight 3D style.
+Inspired by the original arcade game, this project recreates the maze, pellets, ghosts, modes (Scatter / Chase / Frightened), and scoring, while presenting everything in a lightweight 2.5D style.
 
 
 ## Play it now: https://pemmyz.github.io/js_manpac/
@@ -30,7 +30,7 @@ Inspired by the original arcade game, this project recreates the maze, pellets, 
   - Eaten / Return-to-home
 - 🍒 Pellets & Power Pellets
 - 🔊 Procedural audio using Web Audio API (no external sound files)
-- 🧱 Fully 3D maze with arcade-inspired visuals
+- 🧱 Fully 2.5D maze with arcade-inspired visuals
 - 🖥 Deterministic fixed-timestep game loop (60 Hz)
 - 🌐 Runs entirely in the browser (no build step)
 
