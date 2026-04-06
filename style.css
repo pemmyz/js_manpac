@@ -12,15 +12,115 @@ body {
     margin: 0;
     padding: 0;
     overflow: hidden;
-    background-color: var(--bg-color);
+    background-color: #000; /* Outer background */
     font-family: 'Press Start 2P', cursive;
     color: var(--text-white);
     user-select: none;
     -webkit-user-select: none;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    width: 100vw;
 }
 
-#game-container { position: relative; width: 100vw; height: 100vh; }
+/* --- MOBILE MODE LOCK --- */
+body.mobile-mode {
+    overflow: hidden; 
+    touch-action: none; 
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+}
+
+#game-container { 
+    position: relative; 
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%; 
+    height: 100%; 
+}
+
+/* --- THE SCREEN (Fixed Internal Resolution) --- */
+#screen {
+    width: 960px;  
+    height: 720px; 
+    background-color: var(--bg-color);
+    position: relative;
+    overflow: hidden;
+    transform-origin: center center;
+    box-shadow: 0 0 50px rgba(0,0,0,0.8);
+    flex-shrink: 0;
+}
+
 canvas { display: block; width: 100%; height: 100%; outline: none; }
+
+/* --- TOGGLE BUTTON --- */
+#mobile-btn {
+    position: fixed;
+    top: 15px; left: 15px; /* Moved to top-left */
+    z-index: 2000;
+    background: #222;
+    color: white;
+    border: 2px solid var(--pac-yellow);
+    font-size: 10px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-family: 'Press Start 2P', cursive;
+}
+body.mobile-mode #mobile-btn { display: none; }
+
+/* --- MOBILE CONTROLS OVERLAY --- */
+#mobile-controls {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; 
+    z-index: 3000;
+    display: none; 
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+body.mobile-mode #mobile-controls {
+    display: flex;
+}
+
+.mobile-control-btn {
+    pointer-events: auto; 
+    width: 60px; height: 60px;
+    background: rgba(255,255,255,0.15);
+    border: 2px solid rgba(255,255,255,0.4);
+    border-radius: 50%;
+    color: white;
+    font-size: 20px;
+    display: flex; justify-content: center; align-items: center;
+    user-select: none;
+    backdrop-filter: blur(4px);
+    transition: transform 0.1s, background 0.1s;
+    -webkit-tap-highlight-color: transparent;
+    font-family: inherit;
+}
+.mobile-control-btn:active {
+    background: rgba(255,255,255,0.4);
+    transform: scale(0.95);
+}
+#mobile-action-btn { width: 80px; height: 80px; font-size: 10px; }
+
+#mobile-dpad {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin-left: 20px;
+    margin-bottom: 20px;
+}
+.dpad-row { display: flex; gap: 8px; }
+#mobile-action { margin-right: 20px; margin-bottom: 20px; }
 
 #ui-layer {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -46,7 +146,8 @@ canvas { display: block; width: 100%; height: 100%; outline: none; }
 }
 
 /* Scoreboard */
-.score-board { display: flex; justify-content: space-around; padding-top: 20px; text-shadow: 2px 2px 0px #000; width: 100%; }
+/* Reduced padding-top to bring text closer to the maze edge */
+.score-board { display: flex; justify-content: space-around; padding-top: 10px; text-shadow: 2px 2px 0px #000; width: 100%; }
 .score-box { text-align: center; }
 .label { font-size: 14px; margin-bottom: 8px; color: #fff; }
 #score-p1 { color: var(--pac-yellow); font-size: 20px; }
@@ -148,7 +249,6 @@ canvas { display: block; width: 100%; height: 100%; outline: none; }
 .help-section .key { color: var(--pac-yellow); display: inline-block; width: 80px; }
 .help-section .license { color: #666; font-size: 8px; margin-top: 15px; font-style: italic; }
 
-/* Custom Scrollbar for Help Menu */
 .help-content::-webkit-scrollbar { width: 8px; }
 .help-content::-webkit-scrollbar-track { background: #111; }
 .help-content::-webkit-scrollbar-thumb { background: #333; border: 1px solid #555; }

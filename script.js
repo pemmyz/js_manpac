@@ -854,7 +854,8 @@ class Game {
             canvas: document.getElementById('game-canvas'), 
             antialias: true 
         });
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        // We now render at fixed resolution to match the 960x720 internal #screen container perfectly
+        this.renderer.setSize(960, 720);
         this.renderer.setClearColor(0x050505);
 
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
@@ -876,14 +877,22 @@ class Game {
 
         window.addEventListener('resize', () => {
             this.updateCamera();
-            this.renderer.setSize(window.innerWidth, window.innerHeight);
+            // Resizing is now handled by CSS transform, so we don't modify renderer size anymore.
         });
     }
 
-    updateCamera() {
+
+
+
+
+
+updateCamera() {
         const maxDim = Math.max(this.mapW, this.mapH);
-        const frustumSize = maxDim * TILE_SIZE * 1.3; 
-        const aspect = window.innerWidth / window.innerHeight;
+        
+        // Changed from 1.3 to 1.08 to dramatically zoom in the game area, removing excess padding
+        const frustumSize = maxDim * TILE_SIZE * 1.08; 
+        
+        const aspect = 960 / 720; // Hardcoded to match our 4:3 internal screen container
 
         if(!this.camera) {
             this.camera = new THREE.OrthographicCamera(
@@ -899,9 +908,20 @@ class Game {
             this.camera.updateProjectionMatrix();
         }
 
-        this.camera.position.set(0, 400, 300); 
-        this.camera.lookAt(0, 0, 0);
+        // Shift the camera target down (positive Z axis), which forces the rendered maze UP visually.
+        // This makes the top edge of the maze sit right under the UI score text.
+        const verticalShift = 25;
+        this.camera.position.set(0, 400, 300 + verticalShift); 
+        this.camera.lookAt(0, 0, verticalShift);
     }
+
+
+
+
+
+
+
+
 
     setupOptionsListeners() {
         const u = this.ui;
@@ -1174,6 +1194,49 @@ class Game {
         // Help Buttons
         this.ui.btnOpenHelp.addEventListener('click', () => this.toggleHelp());
         this.ui.btnCloseHelp.addEventListener('click', () => this.toggleHelp());
+
+        // --- MOBILE TOUCH CONTROLS ---
+        const mobileLeft = document.getElementById('mobile-left');
+        const mobileRight = document.getElementById('mobile-right');
+        const mobileUp = document.getElementById('mobile-up');
+        const mobileDown = document.getElementById('mobile-down');
+        const mobileAction = document.getElementById('mobile-action-btn');
+
+        const addControlListener = (element, keyName) => {
+            if(!element) return;
+            const pressKey = (e) => {
+                if(e.cancelable) e.preventDefault(); 
+                this.keys[keyName] = true;
+                this.resetIdleTimer();
+
+                // Custom logic for Start/Restart on spacebar map via touch
+                if (keyName === ' ') {
+                    if (this.state === 'MENU' && !this.optionsOpen && !this.helpOpen) {
+                        this.startGame(false);
+                    }
+                    if (this.state === 'GAMEOVER') {
+                        this.resetGame();
+                    }
+                }
+            };
+            const releaseKey = (e) => {
+                if(e.cancelable) e.preventDefault();
+                this.keys[keyName] = false;
+            };
+
+            element.addEventListener('touchstart', pressKey, { passive: false });
+            element.addEventListener('touchend', releaseKey, { passive: false });
+            element.addEventListener('touchcancel', releaseKey, { passive: false });
+            element.addEventListener('mousedown', pressKey);
+            element.addEventListener('mouseup', releaseKey);
+            element.addEventListener('mouseleave', (e) => { if (e.buttons === 1) { releaseKey(e); } });
+        };
+
+        addControlListener(mobileLeft, 'ArrowLeft');
+        addControlListener(mobileRight, 'ArrowRight');
+        addControlListener(mobileUp, 'ArrowUp');
+        addControlListener(mobileDown, 'ArrowDown');
+        addControlListener(mobileAction, ' '); 
     }
 
     updateMenuUI() {
@@ -1485,3 +1548,50 @@ class Game {
 }
 
 new Game();
+
+/**
+ * --- FULLSCREEN & RESPONSIVE SCALING LOGIC ---
+ */
+const screenElement = document.getElementById("screen");
+const mobileToggleBtn = document.getElementById('mobile-btn');
+
+function scaleGame() {
+    const baseWidth = 960;
+    const baseHeight = 720;
+    // Always scale perfectly to fit the browser, effectively removing empty space.
+    const scale = Math.min(
+        window.innerWidth / baseWidth,
+        window.innerHeight / baseHeight
+    );
+    
+    if(screenElement) {
+        screenElement.style.transform = `scale(${scale})`;
+    }
+}
+
+// Initial scale and bind to window resize
+window.addEventListener("resize", scaleGame);
+scaleGame();
+
+// Fullscreen button listener
+if (mobileToggleBtn) {
+    mobileToggleBtn.addEventListener('click', () => {
+        const el = document.documentElement;
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+            if (el.requestFullscreen) el.requestFullscreen();
+            else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+            document.body.classList.add('mobile-mode');
+        } else {
+            if (document.exitFullscreen) document.exitFullscreen();
+            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+            document.body.classList.remove('mobile-mode');
+        }
+    });
+}
+
+document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement) document.body.classList.remove('mobile-mode');
+});
+document.addEventListener("webkitfullscreenchange", () => {
+    if (!document.webkitFullscreenElement) document.body.classList.remove('mobile-mode');
+});

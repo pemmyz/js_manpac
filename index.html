@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>GhostMan 2.5D: Custom Edition</title>
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -19,132 +19,142 @@
     </script>
 </head>
 <body>
+    <!-- TOGGLE BUTTON -->
+    <button id="mobile-btn">📱 FULLSCREEN</button>
+
     <div id="game-container">
-        <!-- UI Overlay -->
-        <div id="ui-layer">
-            
-            <div id="gamepad-notify"></div>
+        <!-- THE SCREEN: Fixed resolution internal logic -->
+        <div id="screen">
+            <!-- UI Overlay -->
+            <div id="ui-layer">
+                <div id="gamepad-notify"></div>
 
-            <div class="score-board">
-                <div class="score-box p1">
-                    <div class="label">1UP</div>
-                    <div id="score-p1">00</div>
-                    <div id="lives-p1" class="lives"></div>
-                </div>
-                <div class="score-box high">
-                    <div class="label">HIGH SCORE</div>
-                    <div id="high-score">10000</div>
-                </div>
-                <div class="score-box p2">
-                    <div class="label">2UP</div>
-                    <div id="score-p2">00</div>
-                    <div id="lives-p2" class="lives"></div>
-                </div>
-            </div>
-            
-            <!-- Main Menu -->
-            <div id="center-message">
-                <h1 id="main-title">GhostMan 2.5D</h1>
-                
-                <div id="demo-countdown" class="hidden">DEMO IN 4</div>
-
-                <p id="sub-message">MAP: ORIGINAL</p>
-                
-                <div id="mode-select">
-                    <button id="btn-1p" class="menu-btn selected">1 PLAYER</button>
-                    <button id="btn-2p" class="menu-btn">2 PLAYERS</button>
-                </div>
-
-                <button id="btn-start-game" class="action-btn">START GAME</button>
-                
-                <!-- Added Help Button -->
-                <button id="btn-open-help" class="action-btn small-btn">HELP / INSTRUCTIONS</button>
-
-                <div class="controls-hint">
-                    <p>ARROWS / WASD to Move</p>
-                    <p>Press 'O' for Options</p>
-                    <p>Press 'H' for Help</p>
-                </div>
-            </div>
-
-            <!-- Options Menu -->
-            <div id="options-menu" class="hidden">
-                <h2>CUSTOM OPTIONS</h2>
-                <div class="opt-row">
-                    <label>WIDTH:</label>
-                    <div class="opt-controls">
-                        <button id="opt-w-dec">&lt;</button>
-                        <span id="opt-w-val">28</span>
-                        <button id="opt-w-inc">&gt;</button>
+                <div class="score-board">
+                    <div class="score-box p1">
+                        <div class="label">1UP</div>
+                        <div id="score-p1">00</div>
+                        <div id="lives-p1" class="lives"></div>
+                    </div>
+                    <div class="score-box high">
+                        <div class="label">HIGH SCORE</div>
+                        <div id="high-score">10000</div>
+                    </div>
+                    <div class="score-box p2">
+                        <div class="label">2UP</div>
+                        <div id="score-p2">00</div>
+                        <div id="lives-p2" class="lives"></div>
                     </div>
                 </div>
-                <div class="opt-row">
-                    <label>HEIGHT:</label>
-                    <div class="opt-controls">
-                        <button id="opt-h-dec">&lt;</button>
-                        <span id="opt-h-val">31</span>
-                        <button id="opt-h-inc">&gt;</button>
-                    </div>
-                </div>
-                <div class="opt-row">
-                    <label>SYMMETRY:</label>
-                    <button id="opt-algo-toggle">MIRRORED</button>
-                </div>
-                <div class="opt-row">
-                    <label>THEME:</label>
-                    <button id="opt-color-toggle">CLASSIC</button>
-                </div>
-                <button id="btn-close-options" class="action-btn">APPLY & CLOSE</button>
-            </div>
-
-            <!-- Help Menu (New) -->
-            <div id="help-menu" class="hidden">
-                <h2>INSTRUCTIONS</h2>
-                <div class="help-content">
+                
+                <!-- Main Menu -->
+                <div id="center-message">
+                    <h1 id="main-title">GhostMan 2.5D</h1>
                     
-                    <div class="help-section">
-                        <h3>CONTROLS</h3>
-                        <ul>
-                            <li><span class="key">P1</span> Arrow Keys</li>
-                            <li><span class="key">P2</span> W A S D</li>
-                            <li><span class="key">MENU</span> Arrows/WASD + Enter</li>
-                            <li><span class="key">TOGGLE</span> 'H' for Help, 'O' for Options</li>
-                        </ul>
+                    <div id="demo-countdown" class="hidden">DEMO IN 4</div>
+
+                    <p id="sub-message">MAP: ORIGINAL</p>
+                    
+                    <div id="mode-select">
+                        <button id="btn-1p" class="menu-btn selected">1 PLAYER</button>
+                        <button id="btn-2p" class="menu-btn">2 PLAYERS</button>
                     </div>
 
-                    <div class="help-section">
-                        <h3>FEATURES</h3>
-                        <ul>
-                            <li>1 Player & 2 Player Shared Screen</li>
-                            <li>Classic Ghost AI (Scatter, Chase, Frightened)</li>
-                            <li>Procedural 2.5D Maze Generation</li>
-                            <li>Synthesized Web Audio</li>
-                        </ul>
+                    <button id="btn-start-game" class="action-btn">START GAME</button>
+                    <button id="btn-open-help" class="action-btn small-btn">HELP / INSTRUCTIONS</button>
+
+                    <div class="controls-hint">
+                        <p>ARROWS / WASD to Move</p>
+                        <p>Press 'O' for Options</p>
+                        <p>Press 'H' for Help</p>
                     </div>
-
-                    <div class="help-section">
-                        <h3>GAMEPLAY</h3>
-                        <p>Eat all pellets to advance. Avoid ghosts unless they are blue (Frightened). Power pellets turn ghosts vulnerable for a short time.</p>
-                        <p>In 2-player mode, ghosts hunt the nearest player.</p>
-                    </div>
-
-
-                    <div class="help-section">
-                        <h3>ABOUT</h3>
-                        <p>A browser-based 2.5D arcade game built with Three.js (ES Modules).</p>
-                        <p>Tech: Three.js r160, Web Audio API.</p>
-                        <p class="license">MIT License. Fan-made project.</p>
-                        <p>Link to repo: <a href="https://github.com/pemmyz/js_manpac" target="_blank" style="color: #ffcc00; text-decoration: none;">https://github.com/pemmyz/js_manpac</a></p>
-                    </div>
-
-
                 </div>
-                <button id="btn-close-help" class="action-btn">CLOSE</button>
-            </div>
 
+                <!-- Options Menu -->
+                <div id="options-menu" class="hidden">
+                    <h2>CUSTOM OPTIONS</h2>
+                    <div class="opt-row">
+                        <label>WIDTH:</label>
+                        <div class="opt-controls">
+                            <button id="opt-w-dec">&lt;</button>
+                            <span id="opt-w-val">28</span>
+                            <button id="opt-w-inc">&gt;</button>
+                        </div>
+                    </div>
+                    <div class="opt-row">
+                        <label>HEIGHT:</label>
+                        <div class="opt-controls">
+                            <button id="opt-h-dec">&lt;</button>
+                            <span id="opt-h-val">31</span>
+                            <button id="opt-h-inc">&gt;</button>
+                        </div>
+                    </div>
+                    <div class="opt-row">
+                        <label>SYMMETRY:</label>
+                        <button id="opt-algo-toggle">MIRRORED</button>
+                    </div>
+                    <div class="opt-row">
+                        <label>THEME:</label>
+                        <button id="opt-color-toggle">CLASSIC</button>
+                    </div>
+                    <button id="btn-close-options" class="action-btn">APPLY & CLOSE</button>
+                </div>
+
+                <!-- Help Menu -->
+                <div id="help-menu" class="hidden">
+                    <h2>INSTRUCTIONS</h2>
+                    <div class="help-content">
+                        <div class="help-section">
+                            <h3>CONTROLS</h3>
+                            <ul>
+                                <li><span class="key">P1</span> Arrow Keys</li>
+                                <li><span class="key">P2</span> W A S D</li>
+                                <li><span class="key">MENU</span> Arrows/WASD + Enter</li>
+                                <li><span class="key">TOGGLE</span> 'H' for Help, 'O' for Options</li>
+                            </ul>
+                        </div>
+                        <div class="help-section">
+                            <h3>FEATURES</h3>
+                            <ul>
+                                <li>1 Player & 2 Player Shared Screen</li>
+                                <li>Classic Ghost AI (Scatter, Chase, Frightened)</li>
+                                <li>Procedural 2.5D Maze Generation</li>
+                                <li>Synthesized Web Audio</li>
+                            </ul>
+                        </div>
+                        <div class="help-section">
+                            <h3>GAMEPLAY</h3>
+                            <p>Eat all pellets to advance. Avoid ghosts unless they are blue (Frightened). Power pellets turn ghosts vulnerable for a short time.</p>
+                            <p>In 2-player mode, ghosts hunt the nearest player.</p>
+                        </div>
+                        <div class="help-section">
+                            <h3>ABOUT</h3>
+                            <p>A browser-based 2.5D arcade game built with Three.js (ES Modules).</p>
+                            <p>Tech: Three.js r160, Web Audio API.</p>
+                            <p class="license">MIT License. Fan-made project.</p>
+                            <p>Link to repo: <a href="https://github.com/pemmyz/js_manpac" target="_blank" style="color: #ffcc00; text-decoration: none;">https://github.com/pemmyz/js_manpac</a></p>
+                        </div>
+                    </div>
+                    <button id="btn-close-help" class="action-btn">CLOSE</button>
+                </div>
+            </div>
+            
+            <canvas id="game-canvas"></canvas>
         </div>
-        
-        <canvas id="game-canvas"></canvas>
+    </div>
+
+    <!-- MOBILE TOUCH CONTROLS OVERLAY -->
+    <div id="mobile-controls">
+        <div id="mobile-dpad">
+            <div class="dpad-row"><button id="mobile-up" class="mobile-control-btn">▲</button></div>
+            <div class="dpad-row">
+                <button id="mobile-left" class="mobile-control-btn">◀</button>
+                <button id="mobile-down" class="mobile-control-btn">▼</button>
+                <button id="mobile-right" class="mobile-control-btn">▶</button>
+            </div>
+        </div>
+        <div id="mobile-action">
+            <button id="mobile-action-btn" class="mobile-control-btn">SPACE</button>
+        </div>
     </div>
 
     <script type="module" src="script.js"></script>
