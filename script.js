@@ -877,7 +877,7 @@ class Game {
 
         window.addEventListener('resize', () => {
             this.updateCamera();
-            // Resizing is now handled by CSS transform, so we don't modify renderer size anymore.
+            // Resizing is now handled by CSS transform, so we don't modify renderer size anymore. 
         });
     }
 
@@ -885,14 +885,25 @@ class Game {
 
 
 
-
 updateCamera() {
-        const maxDim = Math.max(this.mapW, this.mapH);
-        
-        // Changed from 1.3 to 1.08 to dramatically zoom in the game area, removing excess padding
-        const frustumSize = maxDim * TILE_SIZE * 1.08; 
-        
-        const aspect = 960 / 720; // Hardcoded to match our 4:3 internal screen container
+        const aspect = 960 / 720; // Exact logical aspect ratio
+        const mazeWidth = this.mapW * TILE_SIZE;
+        const mazeHeight = this.mapH * TILE_SIZE;
+
+        // Base frustum size to fit the maze vertically while leaving ~11% space at the top for UI.
+        let frustumSize = mazeHeight * 0.89;
+
+        // Exact mathematical formula to lock the 3D Z-boundary of the floor to the exact bottom pixel of the camera view.
+        // It accounts for the Orthographic pitch (sin(53.13deg) = 0.8 scale factor)
+        let verticalShift = (mazeHeight * 0.5) - (frustumSize / 1.6);
+
+        // Fallback: If the generated custom map is extremely wide, we scale out horizontally so it isn't cut off.
+        const minFrustumWidth = mazeWidth * 1.05; 
+        if (frustumSize * aspect < minFrustumWidth) {
+            frustumSize = minFrustumWidth / aspect;
+            // The formula recalculates perfectly, guaranteeing the bottom touches the edge regardless of how far it zoomed out!
+            verticalShift = (mazeHeight * 0.5) - (frustumSize / 1.6);
+        }
 
         if(!this.camera) {
             this.camera = new THREE.OrthographicCamera(
@@ -908,15 +919,9 @@ updateCamera() {
             this.camera.updateProjectionMatrix();
         }
 
-        // Shift the camera target down (positive Z axis), which forces the rendered maze UP visually.
-        // This makes the top edge of the maze sit right under the UI score text.
-        const verticalShift = 25;
         this.camera.position.set(0, 400, 300 + verticalShift); 
         this.camera.lookAt(0, 0, verticalShift);
     }
-
-
-
 
 
 
